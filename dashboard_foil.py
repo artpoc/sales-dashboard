@@ -49,7 +49,16 @@ if uploaded_file:
     c3.metric("Quantity 2025 (units)", f"{qty_2025:,.0f}")
     c4.metric("Quantity 2026 (units)", f"{qty_2026:,.0f}", f"{yoy_qty:.1%} YoY (%)")
 
-    # ================= BRAND =================
+    # ================= ALERTS =================
+    st.subheader("🚨 Sales Alerts")
+    if yoy_sales < -0.2:
+        st.error("Sales decline > 20% YoY (%)")
+    elif yoy_sales > 0.2:
+        st.success("Sales growth > 20% YoY (%)")
+    else:
+        st.info("Stable sales YoY (%)")
+
+    # ================= BRAND ANALYSIS =================
     st.subheader("🏷️ Brand Performance")
 
     brand_df = df.groupby(col_brand).agg({
@@ -61,9 +70,10 @@ if uploaded_file:
     brand_df["Share 2026 (%)"] = brand_df[col_val_2026] / brand_df[col_val_2026].sum()
     brand_df["YoY (%)"] = (brand_df[col_val_2026] - brand_df[col_val_2025]) / brand_df[col_val_2025]
 
-    # 🔥 SORT FIX
+    # Sort brands properly
     brand_df = brand_df.sort_values(col_val_2026, ascending=False)
 
+    # Bar chart
     st.plotly_chart(
         px.bar(brand_df, x=col_brand,
                y=[col_val_2025, col_val_2026],
@@ -72,6 +82,7 @@ if uploaded_file:
         use_container_width=True
     )
 
+    # Pie charts
     colA, colB = st.columns(2)
 
     with colA:
@@ -90,15 +101,21 @@ if uploaded_file:
             use_container_width=True
         )
 
-    # ================= COLOR STYLE =================
-    def highlight_yoy(val):
-        if val > 0:
-            return "background-color: #d4edda"  # green
+    # Format YoY with icons
+    def format_yoy(val):
+        if pd.isna(val):
+            return "-"
+        elif val > 0:
+            return f"🟢 +{val:.1%}"
         elif val < 0:
-            return "background-color: #f8d7da"  # red
-        return ""
+            return f"🔴 {val:.1%}"
+        else:
+            return f"{val:.1%}"
 
-    st.dataframe(brand_df.style.applymap(highlight_yoy, subset=["YoY (%)"]))
+    brand_display = brand_df.copy()
+    brand_display["YoY (%)"] = brand_display["YoY (%)"].apply(format_yoy)
+
+    st.dataframe(brand_display)
 
     # ================= PRODUCTS IN BRAND =================
     st.subheader("📊 Top Products within Brand (€)")
@@ -120,11 +137,12 @@ if uploaded_file:
 
     # ================= TOP PRODUCTS =================
     st.subheader("🏆 Top Products 2026 (€)")
+
     st.dataframe(df.sort_values(col_val_2026, ascending=False)
                  [[col_desc, col_brand, col_val_2026]].head(10))
 
-    # ================= YOY =================
-    st.subheader("📈 YoY Change (%)")
+    # ================= YOY DETAILS =================
+    st.subheader("📈 Year-over-Year Change (YoY %)")
 
     yoy = df[[col_desc, col_brand, col_val_2025, col_val_2026]].copy()
     yoy["YoY (%)"] = (yoy[col_val_2026] - yoy[col_val_2025]) / yoy[col_val_2025]
@@ -136,12 +154,11 @@ if uploaded_file:
         col_val_2026: "Sales 2026 (€)"
     })
 
-    st.write("🔼 Top Growth")
-    st.dataframe(yoy.sort_values("YoY (%)", ascending=False)
-                 .head(10)
-                 .style.applymap(highlight_yoy, subset=["YoY (%)"]))
+    yoy_display = yoy.copy()
+    yoy_display["YoY (%)"] = yoy_display["YoY (%)"].apply(format_yoy)
 
-    st.write("🔽 Biggest Decline")
-    st.dataframe(yoy.sort_values("YoY (%)")
-                 .head(10)
-                 .style.applymap(highlight_yoy, subset=["YoY (%)"]))
+    st.write("🔼 Top Growth Products")
+    st.dataframe(yoy_display.sort_values("YoY (%)", ascending=False).head(10))
+
+    st.write("🔽 Biggest Declines")
+    st.dataframe(yoy_display.sort_values("YoY (%)").head(10))
