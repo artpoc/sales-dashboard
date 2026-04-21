@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-st.title("🎈 Foil Balloons Sales Dashboard - Company A")
+st.title("🎈 Foil Balloons Dashboard - Company A")
 
 uploaded_file = st.file_uploader("Wgraj plik Excel", type=["xlsx"])
 
@@ -11,86 +11,113 @@ if uploaded_file:
 
     df = pd.read_excel(uploaded_file)
 
-    # FILTER ONLY FOIL BALLOONS
-    df["Category"] = df["Article description"].str.lower().apply(lambda x: "Foil" if "foil" in str(x) else "Other")
+    # 🔧 Czyszczenie nazw kolumn
+    df.columns = df.columns.str.strip()
+
+    # 🔎 Automatyczne wykrywanie kolumn
+    def find_column(keyword):
+        for col in df.columns:
+            if keyword.lower() in col.lower():
+                return col
+        return None
+
+    col_brand = find_column("brand")
+    col_desc = find_column("article")
+    col_val_2025 = [c for c in df.columns if "2025" in c and "value" in c.lower()][0]
+    col_val_2026 = [c for c in df.columns if "2026" in c and "value" in c.lower()][0]
+    col_qty_2025 = [c for c in df.columns if "2025" in c and "quantity" in c.lower()][0]
+    col_qty_2026 = [c for c in df.columns if "2026" in c and "quantity" in c.lower()][0]
+
+    # 🎈 FILTR FOIL
+    df["Category"] = df[col_desc].astype(str).str.lower().apply(
+        lambda x: "Foil" if "foil" in x else "Other"
+    )
     df = df[df["Category"] == "Foil"]
 
-    st.success("Dane przefiltrowane: tylko balony foliowe")
+    st.success("Pokazuję tylko balony foliowe")
 
-    # KPI
-    sales_2025 = df["Net Value 2025"].sum()
-    sales_2026 = df["Net Value 2026"].sum()
-
-    qty_2025 = df["Quantity 2025"].sum()
-    qty_2026 = df["Quantity 2026"].sum()
+    # 📊 KPI
+    sales_2025 = df[col_val_2025].sum()
+    sales_2026 = df[col_val_2026].sum()
+    qty_2025 = df[col_qty_2025].sum()
+    qty_2026 = df[col_qty_2026].sum()
 
     yoy_sales = (sales_2026 - sales_2025) / sales_2025 if sales_2025 else 0
     yoy_qty = (qty_2026 - qty_2025) / qty_2025 if qty_2025 else 0
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Sprzedaż 2025", f"{sales_2025:,.0f}")
-    col2.metric("Sprzedaż 2026", f"{sales_2026:,.0f}", f"{yoy_sales:.1%}")
-    col3.metric("Ilość 2025", f"{qty_2025:,.0f}")
-    col4.metric("Ilość 2026", f"{qty_2026:,.0f}", f"{yoy_qty:.1%}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Sprzedaż 2025", f"{sales_2025:,.0f}")
+    c2.metric("Sprzedaż 2026", f"{sales_2026:,.0f}", f"{yoy_sales:.1%}")
+    c3.metric("Ilość 2025", f"{qty_2025:,.0f}")
+    c4.metric("Ilość 2026", f"{qty_2026:,.0f}", f"{yoy_qty:.1%}")
 
-    # SALES COMPARISON
-    st.subheader("📊 Sprzedaż rok do roku")
-    sales_df = pd.DataFrame({
-        "Year": ["2025", "2026"],
-        "Sales": [sales_2025, sales_2026]
-    })
-    fig = px.bar(sales_df, x="Year", y="Sales", title="Sprzedaż Foil YoY")
-    st.plotly_chart(fig, use_container_width=True)
+    # 🚨 ALERTY
+    st.subheader("🚨 Alerty")
+    if yoy_sales < -0.2:
+        st.error("Spadek sprzedaży >20%")
+    elif yoy_sales > 0.2:
+        st.success("Wzrost sprzedaży >20%")
 
-    # BRAND ANALYSIS
-    st.subheader("🏷️ Sprzedaż wg Brand (licencji)")
-    brand_group = df.groupby("Brand Name").agg({
-        "Net Value 2025": "sum",
-        "Net Value 2026": "sum"
-    }).reset_index()
+    # 🏷️ BRAND ANALYSIS
+    if col_brand:
+        st.subheader("🏷️ Sprzedaż wg Brand")
 
-    fig2 = px.bar(brand_group, x="Brand Name",
-                  y=["Net Value 2025", "Net Value 2026"],
-                  barmode="group",
-                  title="Sprzedaż wg Brand")
-    st.plotly_chart(fig2, use_container_width=True)
+        brand_df = df.groupby(col_brand).agg({
+            col_val_2025: "sum",
+            col_val_2026: "sum"
+        }).reset_index()
 
-    # TOP PRODUCTS
-    st.subheader("🏆 Najlepsze produkty 2026")
-    top_products = df.sort_values(by="Net Value 2026", ascending=False).head(10)
-    st.dataframe(top_products[["Article description", "Brand Name", "Net Value 2026"]])
+        brand_df["Share"] = brand_df[col_val_2026] / brand_df[col_val_2026].sum()
 
-    # WORST PRODUCTS
-    st.subheader("📉 Najgorsze produkty 2026")
-    worst_products = df.sort_values(by="Net Value 2026", ascending=True).head(10)
-    st.dataframe(worst_products[["Article description", "Brand Name", "Net Value 2026"]])
+        # wykres słupkowy
+        fig = px.bar(
+            brand_df,
+            x=col_brand,
+            y=[col_val_2025, col_val_2026],
+            barmode="group"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-    # QUANTITY ANALYSIS
-    st.subheader("📦 Ilość sprzedanych produktów")
-    qty_df = pd.DataFrame({
-        "Year": ["2025", "2026"],
-        "Quantity": [qty_2025, qty_2026]
-    })
-    fig3 = px.bar(qty_df, x="Year", y="Quantity", title="Ilość YoY")
-    st.plotly_chart(fig3, use_container_width=True)
+        # pie chart udział %
+        fig2 = px.pie(
+            brand_df,
+            names=col_brand,
+            values=col_val_2026,
+            title="Udział % Brand 2026"
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
-    # PRICE ANALYSIS
+    # 🏆 TOP produkty
+    st.subheader("🏆 TOP produkty")
+    st.dataframe(df.sort_values(col_val_2026, ascending=False)
+                 [[col_desc, col_brand, col_val_2026]].head(10))
+
+    # 📉 NAJGORSZE produkty
+    st.subheader("📉 Najgorsze produkty")
+    st.dataframe(df.sort_values(col_val_2026)
+                 [[col_desc, col_brand, col_val_2026]].head(10))
+
+    # 💰 Średnia cena
     st.subheader("💰 Średnia cena")
-    df["Price 2025"] = df["Net Value 2025"] / df["Quantity 2025"]
-    df["Price 2026"] = df["Net Value 2026"] / df["Quantity 2026"]
-
-    avg_price_2025 = df["Price 2025"].mean()
-    avg_price_2026 = df["Price 2026"].mean()
+    df["price_2025"] = df[col_val_2025] / df[col_qty_2025]
+    df["price_2026"] = df[col_val_2026] / df[col_qty_2026]
 
     price_df = pd.DataFrame({
         "Year": ["2025", "2026"],
-        "Price": [avg_price_2025, avg_price_2026]
+        "Price": [df["price_2025"].mean(), df["price_2026"].mean()]
     })
 
-    fig4 = px.bar(price_df, x="Year", y="Price", title="Średnia cena")
-    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(px.bar(price_df, x="Year", y="Price"),
+                    use_container_width=True)
 
-    # YOY BY PRODUCT
-    st.subheader("📈 Zmiana YoY per produkt")
-    df["YoY"] = (df["Net Value 2026"] - df["Net Value 2025"]) / df["Net Value 2025"]
-    st.dataframe(df[["Article description", "YoY"]].sort_values(by="YoY", ascending=False).head(10))
+    # 📈 YOY PRODUKTY
+    st.subheader("📈 Zmiany YoY")
+    df["YoY"] = (df[col_val_2026] - df[col_val_2025]) / df[col_val_2025]
+
+    st.write("TOP wzrosty")
+    st.dataframe(df.sort_values("YoY", ascending=False)
+                 [[col_desc, "YoY"]].head(10))
+
+    st.write("Największe spadki")
+    st.dataframe(df.sort_values("YoY")
+                 [[col_desc, "YoY"]].head(10))
