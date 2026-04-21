@@ -49,85 +49,82 @@ if uploaded_file:
     c3.metric("Quantity 2025 (units)", f"{qty_2025:,.0f}")
     c4.metric("Quantity 2026 (units)", f"{qty_2026:,.0f}", f"{yoy_qty:.1%} YoY (%)")
 
-    # ================= ALERTS =================
-    st.subheader("🚨 Sales Alerts")
-    if yoy_sales < -0.2:
-        st.error("Sales decline > 20% YoY (%)")
-    elif yoy_sales > 0.2:
-        st.success("Sales growth > 20% YoY (%)")
-    else:
-        st.info("Stable sales YoY (%)")
+    # ================= BRAND =================
+    st.subheader("🏷️ Brand Performance")
 
-    # ================= BRAND ANALYSIS =================
-    if col_brand:
-        st.subheader("🏷️ Brand Performance Analysis")
+    brand_df = df.groupby(col_brand).agg({
+        col_val_2025: "sum",
+        col_val_2026: "sum"
+    }).reset_index()
 
-        brand_df = df.groupby(col_brand).agg({
-            col_val_2025: "sum",
-            col_val_2026: "sum"
-        }).reset_index()
+    brand_df["Share 2025 (%)"] = brand_df[col_val_2025] / brand_df[col_val_2025].sum()
+    brand_df["Share 2026 (%)"] = brand_df[col_val_2026] / brand_df[col_val_2026].sum()
+    brand_df["YoY (%)"] = (brand_df[col_val_2026] - brand_df[col_val_2025]) / brand_df[col_val_2025]
 
-        brand_df["Share 2025 (%)"] = brand_df[col_val_2025] / brand_df[col_val_2025].sum()
-        brand_df["Share 2026 (%)"] = brand_df[col_val_2026] / brand_df[col_val_2026].sum()
-        brand_df["YoY (%)"] = (brand_df[col_val_2026] - brand_df[col_val_2025]) / brand_df[col_val_2025]
+    # 🔥 SORT FIX
+    brand_df = brand_df.sort_values(col_val_2026, ascending=False)
 
-        # Bar chart
+    st.plotly_chart(
+        px.bar(brand_df, x=col_brand,
+               y=[col_val_2025, col_val_2026],
+               barmode="group",
+               title="Sales by Brand (€)"),
+        use_container_width=True
+    )
+
+    colA, colB = st.columns(2)
+
+    with colA:
         st.plotly_chart(
-            px.bar(brand_df,
-                   x=col_brand,
-                   y=[col_val_2025, col_val_2026],
-                   barmode="group",
-                   title="Sales by Brand (€)"),
+            px.pie(brand_df, names=col_brand,
+                   values=col_val_2025,
+                   title="Brand Share 2025 (%)"),
             use_container_width=True
         )
 
-        # Pie charts
-        colA, colB = st.columns(2)
-
-        with colA:
-            st.plotly_chart(
-                px.pie(brand_df, names=col_brand,
-                       values=col_val_2025,
-                       title="Brand Share 2025 (%)"),
-                use_container_width=True
-            )
-
-        with colB:
-            st.plotly_chart(
-                px.pie(brand_df, names=col_brand,
-                       values=col_val_2026,
-                       title="Brand Share 2026 (%)"),
-                use_container_width=True
-            )
-
-        st.dataframe(brand_df)
-
-    # ================= PRODUCT SHARE =================
-    st.subheader("📊 Product Share within Brand (%)")
-
-    if col_brand:
-        selected_brand = st.selectbox("Select Brand", df[col_brand].dropna().unique())
-
-        df_brand = df[df[col_brand] == selected_brand]
-
-        prod_share = df_brand.groupby(col_desc)[col_val_2026].sum().reset_index()
-        prod_share["Share (%)"] = prod_share[col_val_2026] / prod_share[col_val_2026].sum()
-
+    with colB:
         st.plotly_chart(
-            px.bar(prod_share.sort_values("Share (%)", ascending=False).head(10),
-                   x=col_desc, y="Share (%)",
-                   title="Top Products Share (%) - 2026"),
+            px.pie(brand_df, names=col_brand,
+                   values=col_val_2026,
+                   title="Brand Share 2026 (%)"),
             use_container_width=True
         )
+
+    # ================= COLOR STYLE =================
+    def highlight_yoy(val):
+        if val > 0:
+            return "background-color: #d4edda"  # green
+        elif val < 0:
+            return "background-color: #f8d7da"  # red
+        return ""
+
+    st.dataframe(brand_df.style.applymap(highlight_yoy, subset=["YoY (%)"]))
+
+    # ================= PRODUCTS IN BRAND =================
+    st.subheader("📊 Top Products within Brand (€)")
+
+    selected_brand = st.selectbox("Select Brand", df[col_brand].dropna().unique())
+
+    df_brand = df[df[col_brand] == selected_brand]
+
+    top_products = df_brand.groupby(col_desc)[col_val_2026].sum().reset_index()
+    top_products = top_products.sort_values(col_val_2026, ascending=False).head(10)
+
+    st.plotly_chart(
+        px.bar(top_products,
+               x=col_desc,
+               y=col_val_2026,
+               title="Top Products by Sales (€) - 2026"),
+        use_container_width=True
+    )
 
     # ================= TOP PRODUCTS =================
     st.subheader("🏆 Top Products 2026 (€)")
+    st.dataframe(df.sort_values(col_val_2026, ascending=False)
+                 [[col_desc, col_brand, col_val_2026]].head(10))
 
-    top_df = df.sort_values(col_val_2026, ascending=False).head(10)
-    st.dataframe(top_df[[col_desc, col_brand, col_val_2026]])
-
-    # ================= YOY DETAILS =================
-    st.subheader("📈 Year-over-Year Change (YoY %)")
+    # ================= YOY =================
+    st.subheader("📈 YoY Change (%)")
 
     yoy = df[[col_desc, col_brand, col_val_2025, col_val_2026]].copy()
     yoy["YoY (%)"] = (yoy[col_val_2026] - yoy[col_val_2025]) / yoy[col_val_2025]
@@ -139,8 +136,12 @@ if uploaded_file:
         col_val_2026: "Sales 2026 (€)"
     })
 
-    st.write("🔼 Top Growth Products")
-    st.dataframe(yoy.sort_values("YoY (%)", ascending=False).head(10))
+    st.write("🔼 Top Growth")
+    st.dataframe(yoy.sort_values("YoY (%)", ascending=False)
+                 .head(10)
+                 .style.applymap(highlight_yoy, subset=["YoY (%)"]))
 
-    st.write("🔽 Biggest Declines")
-    st.dataframe(yoy.sort_values("YoY (%)").head(10))
+    st.write("🔽 Biggest Decline")
+    st.dataframe(yoy.sort_values("YoY (%)")
+                 .head(10)
+                 .style.applymap(highlight_yoy, subset=["YoY (%)"]))
