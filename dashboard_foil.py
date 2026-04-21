@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
 st.set_page_config(layout="wide")
 st.title("🎈 Foil Balloons Dashboard - Company A")
@@ -10,11 +12,9 @@ uploaded_file = st.file_uploader("Wgraj plik Excel", type=["xlsx"])
 if uploaded_file:
 
     df = pd.read_excel(uploaded_file)
-
-    # 🔧 Czyszczenie nazw kolumn
     df.columns = df.columns.str.strip()
 
-    # 🔎 Wykrywanie kolumn
+    # 🔎 wykrywanie kolumn
     def find_column(keyword):
         for col in df.columns:
             if keyword.lower() in col.lower():
@@ -28,7 +28,7 @@ if uploaded_file:
     col_qty_2025 = [c for c in df.columns if "2025" in c and "quantity" in c.lower()][0]
     col_qty_2026 = [c for c in df.columns if "2026" in c and "quantity" in c.lower()][0]
 
-    # 🎈 FILTR FOIL
+    # 🎈 filtr foil
     df["Category"] = df[col_desc].astype(str).str.lower().apply(
         lambda x: "Foil" if "foil" in x else "Other"
     )
@@ -36,7 +36,7 @@ if uploaded_file:
 
     st.success("Dane: tylko balony foliowe (Foil)")
 
-    # 📊 KPI
+    # ================= KPI =================
     sales_2025 = df[col_val_2025].sum()
     sales_2026 = df[col_val_2026].sum()
     qty_2025 = df[col_qty_2025].sum()
@@ -51,7 +51,7 @@ if uploaded_file:
     c3.metric("Ilość 2025 (szt.)", f"{qty_2025:,.0f}")
     c4.metric("Ilość 2026 (szt.)", f"{qty_2026:,.0f}", f"{yoy_qty:.1%} YoY")
 
-    # 🚨 ALERTY
+    # ================= 🚨 ALERTY =================
     st.subheader("🚨 Alerty sprzedażowe")
     if yoy_sales < -0.2:
         st.error("Spadek sprzedaży > 20% (YoY)")
@@ -60,9 +60,9 @@ if uploaded_file:
     else:
         st.info("Stabilna sprzedaż (YoY)")
 
-    # 🏷️ BRAND ANALYSIS
+    # ================= 🏷️ BRAND =================
     if col_brand:
-        st.subheader("🏷️ Sprzedaż wg Brand (licencji)")
+        st.subheader("🏷️ Analiza Brand (licencji)")
 
         brand_df = df.groupby(col_brand).agg({
             col_val_2025: "sum",
@@ -72,48 +72,62 @@ if uploaded_file:
         brand_df["Udział % 2026"] = brand_df[col_val_2026] / brand_df[col_val_2026].sum()
         brand_df["YoY %"] = (brand_df[col_val_2026] - brand_df[col_val_2025]) / brand_df[col_val_2025]
 
-        # 📊 wykres słupkowy
-        fig = px.bar(
-            brand_df,
-            x=col_brand,
-            y=[col_val_2025, col_val_2026],
-            barmode="group",
-            title="Sprzedaż (€) wg Brand"
+        # wykres słupkowy
+        st.plotly_chart(
+            px.bar(brand_df, x=col_brand,
+                   y=[col_val_2025, col_val_2026],
+                   barmode="group",
+                   title="Sprzedaż (€) wg Brand"),
+            use_container_width=True
         )
-        st.plotly_chart(fig, use_container_width=True)
 
-        # 🥧 udział %
-        fig2 = px.pie(
-            brand_df,
-            names=col_brand,
-            values=col_val_2026,
-            title="Udział % Brand w sprzedaży 2026"
+        # pie chart
+        st.plotly_chart(
+            px.pie(brand_df, names=col_brand,
+                   values=col_val_2026,
+                   title="Udział % Brand 2026"),
+            use_container_width=True
         )
-        st.plotly_chart(fig2, use_container_width=True)
 
-        # 📋 tabela brandów
         st.dataframe(brand_df)
 
-    # 🏆 TOP produkty
-    st.subheader("🏆 Najlepsze produkty 2026")
+    # ================= 📊 PRODUKTY W BRAND =================
+    st.subheader("📊 Udział produktów w ramach Brand")
 
-    top_df = df.sort_values(col_val_2026, ascending=False).head(10)
-    st.dataframe(top_df[[col_desc, col_brand, col_val_2026]])
+    if col_brand:
+        selected_brand = st.selectbox("Wybierz Brand", df[col_brand].dropna().unique())
 
-    # 📉 NAJGORSZE produkty
-    st.subheader("📉 Najgorsze produkty 2026")
+        df_brand = df[df[col_brand] == selected_brand]
 
-    worst_df = df.sort_values(col_val_2026).head(10)
-    st.dataframe(worst_df[[col_desc, col_brand, col_val_2026]])
+        prod_share = df_brand.groupby(col_desc)[col_val_2026].sum().reset_index()
+        prod_share["Udział %"] = prod_share[col_val_2026] / prod_share[col_val_2026].sum()
 
-    # 📈 YOY PRODUKTY (ROZBUDOWANE)
-    st.subheader("📈 Zmiany YoY – szczegóły")
+        st.plotly_chart(
+            px.bar(prod_share.sort_values("Udział %", ascending=False).head(10),
+                   x=col_desc, y="Udział %",
+                   title="Top produkty w Brand (%)"),
+            use_container_width=True
+        )
 
-    df["YoY %"] = (df[col_val_2026] - df[col_val_2025]) / df[col_val_2025]
+    # ================= 🎯 BEST vs DEAD =================
+    st.subheader("🎯 Best Seller vs Dead Stock")
 
-    yoy_table = df[[col_desc, col_brand, col_val_2025, col_val_2026, "YoY %"]]
+    best = df.sort_values(col_val_2026, ascending=False).head(10)
+    dead = df[df[col_val_2026] == 0]
 
-    yoy_table = yoy_table.rename(columns={
+    st.write("🏆 Best Sellers")
+    st.dataframe(best[[col_desc, col_brand, col_val_2026]])
+
+    st.write("💀 Dead Stock (brak sprzedaży 2026)")
+    st.dataframe(dead[[col_desc, col_brand, col_val_2025]])
+
+    # ================= 📈 YOY =================
+    st.subheader("📈 Zmiana YoY – szczegóły")
+
+    yoy = df[[col_desc, col_brand, col_val_2025, col_val_2026]].copy()
+    yoy["YoY %"] = (yoy[col_val_2026] - yoy[col_val_2025]) / yoy[col_val_2025]
+
+    yoy = yoy.rename(columns={
         col_desc: "Produkt",
         col_brand: "Brand",
         col_val_2025: "Sprzedaż 2025 (€)",
@@ -121,7 +135,24 @@ if uploaded_file:
     })
 
     st.write("🔼 Największe wzrosty")
-    st.dataframe(yoy_table.sort_values("YoY %", ascending=False).head(10))
+    st.dataframe(yoy.sort_values("YoY %", ascending=False).head(10))
 
     st.write("🔽 Największe spadki")
-    st.dataframe(yoy_table.sort_values("YoY %").head(10))
+    st.dataframe(yoy.sort_values("YoY %").head(10))
+
+    # ================= 📤 PDF =================
+    st.subheader("📤 Eksport raportu PDF")
+
+    if st.button("Generuj PDF"):
+
+        doc = SimpleDocTemplate("raport.pdf")
+        styles = getSampleStyleSheet()
+
+        elements = []
+        elements.append(Paragraph("Raport sprzedaży - Foil Balloons", styles["Title"]))
+        elements.append(Paragraph(f"Sprzedaż 2025: {sales_2025:,.0f} €", styles["Normal"]))
+        elements.append(Paragraph(f"Sprzedaż 2026: {sales_2026:,.0f} €", styles["Normal"]))
+
+        doc.build(elements)
+
+        st.success("PDF wygenerowany jako raport.pdf")
