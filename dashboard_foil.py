@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from io import BytesIO
+
+# PDF (bez reportlab — prostsze i stabilne)
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
 st.set_page_config(layout="wide")
 st.title("🎈 Foil Balloons Sales Dashboard - Company A")
@@ -42,6 +47,8 @@ if uploaded_file:
     st.success("Dataset filtered: Foil balloons only")
 
     # ================= KPI =================
+    st.markdown("### 💰 All values are in EURO (€) | 📦 Quantities in PCS")
+
     sales_2025 = df[col_val_2025].sum()
     sales_2026 = df[col_val_2026].sum()
     qty_2025 = df[col_qty_2025].sum()
@@ -53,21 +60,23 @@ if uploaded_file:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Sales 2025 (€)", f"{sales_2025:,.0f}")
     c2.metric("Sales 2026 (€)", f"{sales_2026:,.0f}", f"{yoy_sales:.0f}%")
-    c3.metric("Quantity 2025", f"{qty_2025:,.0f}")
-    c4.metric("Quantity 2026", f"{qty_2026:,.0f}", f"{yoy_qty:.0f}%")
+    c3.metric("Quantity 2025 (PCS)", f"{qty_2025:,.0f}")
+    c4.metric("Quantity 2026 (PCS)", f"{qty_2026:,.0f}", f"{yoy_qty:.0f}%")
 
     st.divider()
 
     # ================= ALERT =================
     st.subheader("🚨 Sales Alerts")
-    st.caption("Comparison: 2026 vs 2025")
 
     if yoy_sales < -20:
-        st.error("Sales decline > 20%")
+        alert_text = f"Sales decline >20% (Actual: {yoy_sales:.0f}%)"
+        st.error(alert_text)
     elif yoy_sales > 20:
-        st.success("Sales growth > 20%")
+        alert_text = f"Sales growth >20% (Actual: {yoy_sales:.0f}%)"
+        st.success(alert_text)
     else:
-        st.info("Stable performance")
+        alert_text = f"Stable performance (Actual: {yoy_sales:.0f}%)"
+        st.info(alert_text)
 
     st.divider()
 
@@ -75,119 +84,19 @@ if uploaded_file:
     st.subheader("🏷️ Brand Performance")
 
     brand = df.groupby(col_brand).agg({
-        col_val_2025: "sum",
-        col_val_2026: "sum",
-        col_qty_2025: "sum",
-        col_qty_2026: "sum"
+        col_val_2026: "sum"
     }).reset_index()
 
-    brand["Share 2025 (%)"] = brand[col_val_2025] / brand[col_val_2025].sum() * 100
-    brand["Share 2026 (%)"] = brand[col_val_2026] / brand[col_val_2026].sum() * 100
-
-    brand["YoY Value (%)"] = ((brand[col_val_2026] - brand[col_val_2025]) / brand[col_val_2025]) * 100
-    brand["YoY Qty (%)"] = ((brand[col_qty_2026] - brand[col_qty_2025]) / brand[col_qty_2025]) * 100
-
-    brand = brand.replace([float("inf")], 100)
-    brand = brand.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
-    brand.index = brand.index + 1
-
-    # charts
-    st.plotly_chart(px.bar(brand, x=col_brand,
-                           y=[col_val_2025, col_val_2026],
-                           barmode="group",
-                           title="Sales by Brand (€)"),
-                    use_container_width=True)
-
-    colA, colB = st.columns(2)
-    with colA:
-        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2025,
-                               title="Brand Share 2025 (%)"))
-    with colB:
-        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2026,
-                               title="Brand Share 2026 (%)"))
-
-    # format %
-    brand_display = brand.copy()
-    for col in ["Share 2025 (%)", "Share 2026 (%)", "YoY Value (%)", "YoY Qty (%)"]:
-        brand_display[col] = brand_display[col].apply(format_percent)
-
-    st.dataframe(brand_display)
-
-    st.divider()
-
-    # ================= PRODUCTS IN BRAND =================
-    st.subheader("📊 Top Products within Brand")
-
-    selected_brand = st.selectbox("Select Brand", df[col_brand].dropna().unique())
-
-    df_brand = df[df[col_brand] == selected_brand]
-
-    prod = df_brand.groupby(col_desc).agg({
-        col_val_2025: "sum",
-        col_val_2026: "sum",
-        col_qty_2025: "sum",
-        col_qty_2026: "sum"
-    }).reset_index()
-
-    prod = prod.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
-    prod.index = prod.index + 1
-
-    st.dataframe(prod)
+    st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2026,
+                           title="Brand Share 2026 (%)"))
 
     st.divider()
 
     # ================= TOP PRODUCTS =================
     st.subheader("🏆 Top Products 2026")
 
-    top_2026 = df.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
-    top_2026.index = top_2026.index + 1
-
-    st.dataframe(top_2026[[col_desc, col_brand, col_val_2026, col_qty_2026]])
-
-    st.subheader("🏆 Top Products 2025")
-
-    top_2025 = df.sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
-    top_2025.index = top_2025.index + 1
-
-    st.dataframe(top_2025[[col_desc, col_brand, col_val_2025, col_qty_2025]])
-
-    st.divider()
-
-    # ================= YOY =================
-    st.subheader("📈 YoY Analysis")
-
-    yoy = df[[col_desc, col_brand, col_val_2025, col_val_2026, col_qty_2025, col_qty_2026]].copy()
-
-    yoy["YoY Value (%)"] = ((yoy[col_val_2026] - yoy[col_val_2025]) / yoy[col_val_2025]) * 100
-    yoy["YoY Qty (%)"] = ((yoy[col_qty_2026] - yoy[col_qty_2025]) / yoy[col_qty_2025]) * 100
-
-    yoy = yoy.replace([float("inf")], 100)
-    yoy = yoy.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
-    yoy.index = yoy.index + 1
-
-    yoy_display = yoy.copy()
-    yoy_display["YoY Value (%)"] = yoy_display["YoY Value (%)"].apply(format_percent)
-    yoy_display["YoY Qty (%)"] = yoy_display["YoY Qty (%)"].apply(format_percent)
-
-    st.dataframe(yoy_display.head(15))
-
-    st.divider()
-
-    # ================= RISK =================
-    st.subheader("📉 Risk Detection")
-
-    risk = df.sort_values(col_val_2025, ascending=False).head(20)
-    risk = risk[risk[col_val_2026] < risk[col_val_2025]]
-
-    risk["YoY (%)"] = ((risk[col_val_2026] - risk[col_val_2025]) / risk[col_val_2025]) * 100
-    risk = risk.replace([float("inf")], 100)
-    risk = risk.sort_values("YoY (%)").reset_index(drop=True)
-    risk.index = risk.index + 1
-
-    risk_display = risk.copy()
-    risk_display["YoY (%)"] = risk_display["YoY (%)"].apply(format_percent)
-
-    st.dataframe(risk_display[[col_desc, col_brand, col_val_2025, col_val_2026, "YoY (%)"]])
+    top_2026 = df.sort_values(col_val_2026, ascending=False).head(10)
+    st.dataframe(top_2026[[col_desc, col_val_2026, col_qty_2026]])
 
     st.divider()
 
@@ -195,16 +104,73 @@ if uploaded_file:
     st.subheader("🎯 Portfolio Optimization")
 
     portfolio = df.sort_values(col_val_2026, ascending=False)
-    total = portfolio[col_val_2026].sum()
-
     top10 = portfolio.head(10)
-    share = top10[col_val_2026].sum() / total * 100
 
-    st.metric("Top 10 Share", f"{share:.0f}%")
+    st.dataframe(top10[[col_desc, col_val_2026]])
 
-    if share > 70:
-        st.warning("High concentration risk")
-    elif share > 50:
-        st.info("Moderate concentration")
-    else:
-        st.success("Diversified portfolio")
+    st.plotly_chart(px.pie(top10, names=col_desc, values=col_val_2026,
+                           title="Top 10 Products Share"))
+
+    st.divider()
+
+    # ================= RECOMMENDATIONS =================
+    st.subheader("💡 AI Sales Recommendations")
+
+    recommendations = []
+
+    if yoy_sales > 10 and yoy_qty < 0:
+        recommendations.append("📈 Sales driven by price increase – monitor demand elasticity")
+
+    if yoy_qty > 10:
+        recommendations.append("📦 Strong volume growth – consider scaling distribution")
+
+    if yoy_sales < 0:
+        recommendations.append("⚠️ Declining sales – review portfolio and promotions")
+
+    top_share = top10[col_val_2026].sum() / df[col_val_2026].sum() * 100
+
+    if top_share > 70:
+        recommendations.append("⚠️ High dependency on few products – diversify portfolio")
+
+    if not recommendations:
+        recommendations.append("✅ Portfolio performing well – no immediate risks detected")
+
+    for rec in recommendations:
+        st.write(rec)
+
+    st.divider()
+
+    # ================= PDF EXPORT =================
+    st.subheader("📄 Export Report to PDF")
+
+    def generate_pdf():
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        styles = getSampleStyleSheet()
+
+        content = []
+
+        content.append(Paragraph("Foil Balloons Sales Report", styles["Title"]))
+        content.append(Spacer(1, 12))
+
+        content.append(Paragraph(f"Sales 2026: {sales_2026:,.0f} €", styles["Normal"]))
+        content.append(Paragraph(f"YoY Sales: {yoy_sales:.0f}%", styles["Normal"]))
+        content.append(Spacer(1, 12))
+
+        content.append(Paragraph("Recommendations:", styles["Heading2"]))
+
+        for rec in recommendations:
+            content.append(Paragraph(rec, styles["Normal"]))
+
+        doc.build(content)
+        buffer.seek(0)
+        return buffer
+
+    pdf_file = generate_pdf()
+
+    st.download_button(
+        label="📥 Download PDF Report",
+        data=pdf_file,
+        file_name="sales_report.pdf",
+        mime="application/pdf"
+    )
