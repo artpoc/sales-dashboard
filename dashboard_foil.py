@@ -14,13 +14,6 @@ def yoy_format(v):
     arrow = "🟢 ↑" if v > 0 else "🔴 ↓"
     return f"{v:.0f}% {arrow}"
 
-def highlight_yoy(val):
-    if "🟢" in str(val):
-        return "background-color: #d4edda"
-    elif "🔴" in str(val):
-        return "background-color: #f8d7da"
-    return ""
-
 if uploaded_file:
 
     df = pd.read_excel(uploaded_file)
@@ -136,18 +129,16 @@ if uploaded_file:
     c1, c2 = st.columns(2)
 
     with c1:
-        d = dfb[dfb[col_val_2025] > 0].sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
-        d.index = d.index + 1
+        d = dfb[dfb[col_val_2025] > 0].sort_values(col_val_2025, ascending=False).head(10)
         st.dataframe(d[[col_code, col_desc, col_val_2025]])
 
     with c2:
-        d = dfb[dfb[col_val_2026] > 0].sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
-        d.index = d.index + 1
+        d = dfb[dfb[col_val_2026] > 0].sort_values(col_val_2026, ascending=False).head(10)
         st.dataframe(d[[col_code, col_desc, col_val_2026]])
 
     st.divider()
 
-    # ================= YOY (NOWA WERSJA) =================
+    # ================= YOY =================
     st.subheader("📈 YoY Analysis (All Products)")
 
     df_yoy = df.copy()
@@ -163,18 +154,16 @@ if uploaded_file:
     df_yoy["YoY Value (%)"] = df_yoy["YoY Value (%)"].apply(yoy_format)
     df_yoy["YoY Qty (%)"] = df_yoy["YoY Qty (%)"].apply(yoy_format)
 
-    st.dataframe(
-        df_yoy[[
-            col_code,
-            col_desc,
-            col_val_2025,
-            col_val_2026,
-            col_qty_2025,
-            col_qty_2026,
-            "YoY Value (%)",
-            "YoY Qty (%)"
-        ]].style.applymap(highlight_yoy, subset=["YoY Value (%)", "YoY Qty (%)"])
-    )
+    st.dataframe(df_yoy[[
+        col_code,
+        col_desc,
+        col_val_2025,
+        col_val_2026,
+        col_qty_2025,
+        col_qty_2026,
+        "YoY Value (%)",
+        "YoY Qty (%)"
+    ]])
 
     st.divider()
 
