@@ -65,23 +65,25 @@ if uploaded_file:
     col_qty_2025 = "Quantity 2025"
     col_qty_2026 = "Quantity 2026"
 
-    # ================= CATEGORY CLEAN =================
+    # ================= CATEGORY (UPDATED ONLY HERE) =================
     if col_category in df.columns:
         df["Category Clean"] = df[col_category].fillna("").apply(normalize_category)
     else:
         df["Category Clean"] = df[col_desc].fillna("").apply(normalize_category)
 
-    # ================= CATEGORY SELECT =================
+    # 🔥 SELECT CATEGORY (NOWY ELEMENT)
     st.subheader("📂 Select Category")
 
     categories = sorted(df["Category Clean"].dropna().unique())
     selected_category = st.selectbox("Choose category", categories)
 
     df = df[df["Category Clean"] == selected_category]
+
+    # (Twoje oryginalne filtry)
     df = df[df[col_desc].notna()]
     df = df[df[col_desc].astype(str).str.lower() != "none"]
 
-    st.success(f"Selected category: {selected_category}")
+    st.success(f"Filtered: {selected_category}")
 
     # ================= CUSTOMER =================
     st.subheader("👤 Customer Information")
@@ -125,12 +127,14 @@ if uploaded_file:
     with col1:
         st.write("### 2025")
         b = brand.sort_values(col_val_2025, ascending=False).reset_index(drop=True)
+        b.index = b.index + 1
         st.plotly_chart(px.pie(b, names=col_brand, values=col_val_2025))
         st.dataframe(b[[col_brand, col_val_2025]])
 
     with col2:
         st.write("### 2026")
         b = brand.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
+        b.index = b.index + 1
         st.plotly_chart(px.pie(b, names=col_brand, values=col_val_2026))
         st.dataframe(b[[col_brand, col_val_2026]])
 
@@ -142,11 +146,13 @@ if uploaded_file:
     c1, c2 = st.columns(2)
 
     with c1:
-        d = df.sort_values(col_val_2025, ascending=False).head(10)
+        d = df.sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2025, col_qty_2025]])
 
     with c2:
-        d = df.sort_values(col_val_2026, ascending=False).head(10)
+        d = df.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2026, col_qty_2026]])
 
     st.divider()
@@ -178,7 +184,9 @@ if uploaded_file:
     df_yoy["YoY Qty (%)"] = ((df_yoy[col_qty_2026] - df_yoy[col_qty_2025]) / df_yoy[col_qty_2025]) * 100
 
     df_yoy = df_yoy.replace([float("inf"), -float("inf")], 0)
-    df_yoy = df_yoy.sort_values(col_val_2026, ascending=False)
+
+    df_yoy = df_yoy.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
+    df_yoy.index = df_yoy.index + 1
 
     df_yoy["YoY Value (%)"] = df_yoy["YoY Value (%)"].apply(yoy_format)
     df_yoy["YoY Qty (%)"] = df_yoy["YoY Qty (%)"].apply(yoy_format)
