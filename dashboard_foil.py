@@ -56,31 +56,33 @@ if uploaded_file:
 
     sales_2025 = df[col_val_2025].sum()
     sales_2026 = df[col_val_2026].sum()
+    qty_2025 = df[col_qty_2025].sum()
+    qty_2026 = df[col_qty_2026].sum()
 
-    k1, k2 = st.columns(2)
+    yoy_sales = (sales_2026 - sales_2025) / sales_2025 * 100 if sales_2025 else 0
+    yoy_qty = (qty_2026 - qty_2025) / qty_2025 * 100 if qty_2025 else 0
+
+    k1, k2, k3, k4 = st.columns(4)
     k1.metric("Sales 2025 (€)", f"{sales_2025:,.0f}")
-    k2.metric("Sales 2026 (€)", f"{sales_2026:,.0f}")
+    k2.metric("Sales 2026 (€)", f"{sales_2026:,.0f}", f"{yoy_sales:.0f}%")
+    k3.metric("Quantity 2025 (PCS)", f"{qty_2025:,.0f}")
+    k4.metric("Quantity 2026 (PCS)", f"{qty_2026:,.0f}", f"{yoy_qty:.0f}%")
 
     st.divider()
 
-    # ================= TOP 10 SHARE =================
-    st.subheader("📊 Top 10 Products Share")
+    # ================= SALES ALERT =================
+    st.subheader("🚨 Sales Alerts")
 
-    top10 = df.sort_values(col_val_2026, ascending=False).head(10)
-    share = top10[col_val_2026].sum() / sales_2026 * 100 if sales_2026 else 0
-
-    st.write(f"Top 10 share in 2026: **{share:.0f}%**")
-
-    if share > 50:
-        st.success("Top 10 share >50% → strong portfolio concentration")
+    if yoy_sales < -20:
+        st.error(f"Sales decline >20% (Actual: {yoy_sales:.0f}%)")
+    elif yoy_sales > 20:
+        st.success(f"Sales growth >20% (Actual: {yoy_sales:.0f}%)")
     else:
-        st.warning("Top 10 share <50% → portfolio fragmented")
-
-    st.plotly_chart(px.pie(top10, names=col_desc, values=col_val_2026))
+        st.info(f"Stable performance (Actual: {yoy_sales:.0f}%)")
 
     st.divider()
 
-    # ================= BRAND =================
+    # ================= BRAND PERFORMANCE =================
     st.subheader("🏷️ Brand Performance")
 
     brand = df.groupby(col_brand).agg({
@@ -88,17 +90,20 @@ if uploaded_file:
         col_val_2026: "sum"
     }).reset_index()
 
-    colA, colB = st.columns(2)
+    # SORT by 2026
+    brand = brand.sort_values(col_val_2026, ascending=False)
 
-    with colA:
-        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2025,
-                              title="Brand Share 2025"))
+    col1, col2 = st.columns(2)
 
-    with colB:
-        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2026,
-                              title="Brand Share 2026"))
+    with col1:
+        st.write("### 2025")
+        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2025))
+        st.dataframe(brand[[col_brand, col_val_2025]])
 
-    st.dataframe(brand[[col_brand, col_val_2025, col_val_2026]])
+    with col2:
+        st.write("### 2026")
+        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2026))
+        st.dataframe(brand[[col_brand, col_val_2026]])
 
     st.divider()
 
@@ -172,3 +177,13 @@ if uploaded_file:
         p = df.sort_values(col_val_2026, ascending=False).head(10)
         st.dataframe(p[[col_code, col_desc, col_val_2026]])
         st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2026))
+
+        # TOP 10 SHARE (PRZENIESIONE TU)
+        share = p[col_val_2026].sum() / sales_2026 * 100 if sales_2026 else 0
+
+        st.markdown(f"### 📊 Top 10 Share (2026): **{share:.0f}%**")
+
+        if share > 50:
+            st.success("Top 10 share >50% → strong concentration")
+        else:
+            st.warning("Top 10 share <50% → fragmented portfolio")
