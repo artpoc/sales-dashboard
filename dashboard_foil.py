@@ -70,19 +70,7 @@ if uploaded_file:
 
     st.divider()
 
-    # ================= SALES ALERT =================
-    st.subheader("🚨 Sales Alerts")
-
-    if yoy_sales < -20:
-        st.error(f"Sales decline >20% (Actual: {yoy_sales:.0f}%)")
-    elif yoy_sales > 20:
-        st.success(f"Sales growth >20% (Actual: {yoy_sales:.0f}%)")
-    else:
-        st.info(f"Stable performance (Actual: {yoy_sales:.0f}%)")
-
-    st.divider()
-
-    # ================= BRAND PERFORMANCE =================
+    # ================= BRAND =================
     st.subheader("🏷️ Brand Performance")
 
     brand = df.groupby(col_brand).agg({
@@ -90,20 +78,21 @@ if uploaded_file:
         col_val_2026: "sum"
     }).reset_index()
 
-    # SORT by 2026
-    brand = brand.sort_values(col_val_2026, ascending=False)
-
     col1, col2 = st.columns(2)
 
     with col1:
         st.write("### 2025")
-        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2025))
-        st.dataframe(brand[[col_brand, col_val_2025]])
+        b = brand.sort_values(col_val_2025, ascending=False).reset_index(drop=True)
+        b.index = b.index + 1
+        st.plotly_chart(px.pie(b, names=col_brand, values=col_val_2025))
+        st.dataframe(b[[col_brand, col_val_2025]])
 
     with col2:
         st.write("### 2026")
-        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2026))
-        st.dataframe(brand[[col_brand, col_val_2026]])
+        b = brand.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
+        b.index = b.index + 1
+        st.plotly_chart(px.pie(b, names=col_brand, values=col_val_2026))
+        st.dataframe(b[[col_brand, col_val_2026]])
 
     st.divider()
 
@@ -113,13 +102,13 @@ if uploaded_file:
     c1, c2 = st.columns(2)
 
     with c1:
-        st.write("2025")
-        d = df.sort_values(col_val_2025, ascending=False).head(10)
+        d = df.sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2025, col_qty_2025]])
 
     with c2:
-        st.write("2026")
-        d = df.sort_values(col_val_2026, ascending=False).head(10)
+        d = df.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2026, col_qty_2026]])
 
     st.divider()
@@ -133,13 +122,13 @@ if uploaded_file:
     c1, c2 = st.columns(2)
 
     with c1:
-        st.write("2025")
-        d = dfb[dfb[col_val_2025] > 0].sort_values(col_val_2025, ascending=False).head(10)
+        d = dfb[dfb[col_val_2025] > 0].sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2025]])
 
     with c2:
-        st.write("2026")
-        d = dfb[dfb[col_val_2026] > 0].sort_values(col_val_2026, ascending=False).head(10)
+        d = dfb[dfb[col_val_2026] > 0].sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2026]])
 
     st.divider()
@@ -147,18 +136,22 @@ if uploaded_file:
     # ================= YOY =================
     st.subheader("📈 YoY Analysis")
 
-    yoy = df.copy()
-    yoy["YoY (%)"] = ((yoy[col_val_2026] - yoy[col_val_2025]) / yoy[col_val_2025]) * 100
-    yoy = yoy.replace([float("inf")], 100)
-
     tab1, tab2 = st.tabs(["2025", "2026"])
 
     with tab1:
-        d = yoy.sort_values(col_val_2025, ascending=False).head(10)
+        d = df.copy()
+        d["YoY (%)"] = ((d[col_val_2025] - d[col_val_2026]) / d[col_val_2026]) * 100
+        d = d.replace([float("inf")], 100)
+        d = d.sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2025, "YoY (%)"]])
 
     with tab2:
-        d = yoy.sort_values(col_val_2026, ascending=False).head(10)
+        d = df.copy()
+        d["YoY (%)"] = ((d[col_val_2026] - d[col_val_2025]) / d[col_val_2025]) * 100
+        d = d.replace([float("inf")], 100)
+        d = d.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
+        d.index = d.index + 1
         st.dataframe(d[[col_code, col_desc, col_val_2026, "YoY (%)"]])
 
     st.divider()
@@ -178,12 +171,17 @@ if uploaded_file:
         st.dataframe(p[[col_code, col_desc, col_val_2026]])
         st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2026))
 
-        # TOP 10 SHARE (PRZENIESIONE TU)
-        share = p[col_val_2026].sum() / sales_2026 * 100 if sales_2026 else 0
+    st.divider()
 
-        st.markdown(f"### 📊 Top 10 Share (2026): **{share:.0f}%**")
+    # ================= CONCENTRATION =================
+    st.subheader("📊 Top 10 Concentration")
 
-        if share > 50:
-            st.success("Top 10 share >50% → strong concentration")
-        else:
-            st.warning("Top 10 share <50% → fragmented portfolio")
+    top10 = df.sort_values(col_val_2026, ascending=False).head(10)
+    share = top10[col_val_2026].sum() / sales_2026 * 100 if sales_2026 else 0
+
+    st.markdown(f"**Top 10 Products Share (2026): {share:.0f}%**")
+
+    if share > 50:
+        st.success("High concentration → portfolio driven by key SKUs")
+    else:
+        st.warning("Low concentration → fragmented portfolio")
