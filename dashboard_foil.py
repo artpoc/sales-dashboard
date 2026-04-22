@@ -27,7 +27,7 @@ if uploaded_file:
     col_qty_2025 = "Quantity 2025"
     col_qty_2026 = "Quantity 2026"
 
-    # ================= CUSTOMER INFO =================
+    # ================= CUSTOMER =================
     st.subheader("👤 Customer Information")
 
     c1, c2, c3 = st.columns(3)
@@ -39,15 +39,13 @@ if uploaded_file:
 
     # ================= CATEGORY =================
     if col_category in df.columns:
-        df["Category Clean"] = df[col_category].astype(str)
+        df["Category Clean"] = df[col_category]
     else:
         df["Category Clean"] = df[col_desc].astype(str).str.lower().apply(
             lambda x: "Foil" if "foil" in x else "Other"
         )
 
     df = df[df["Category Clean"].str.lower() == "foil"]
-
-    # usuń None
     df = df[df[col_desc].notna()]
     df = df[df[col_desc].astype(str).str.lower() != "none"]
 
@@ -58,29 +56,27 @@ if uploaded_file:
 
     sales_2025 = df[col_val_2025].sum()
     sales_2026 = df[col_val_2026].sum()
-    qty_2025 = df[col_qty_2025].sum()
-    qty_2026 = df[col_qty_2026].sum()
 
-    yoy_sales = (sales_2026 - sales_2025) / sales_2025 * 100 if sales_2025 else 0
-    yoy_qty = (qty_2026 - qty_2025) / qty_2025 * 100 if qty_2025 else 0
-
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2 = st.columns(2)
     k1.metric("Sales 2025 (€)", f"{sales_2025:,.0f}")
-    k2.metric("Sales 2026 (€)", f"{sales_2026:,.0f}", f"{yoy_sales:.0f}%")
-    k3.metric("Quantity 2025 (PCS)", f"{qty_2025:,.0f}")
-    k4.metric("Quantity 2026 (PCS)", f"{qty_2026:,.0f}", f"{yoy_qty:.0f}%")
+    k2.metric("Sales 2026 (€)", f"{sales_2026:,.0f}")
 
     st.divider()
 
-    # ================= ALERT =================
-    st.subheader("🚨 Sales Alerts")
+    # ================= TOP 10 SHARE =================
+    st.subheader("📊 Top 10 Products Share")
 
-    if yoy_sales < -20:
-        st.error(f"Sales decline >20% (Actual: {yoy_sales:.0f}%)")
-    elif yoy_sales > 20:
-        st.success(f"Sales growth >20% (Actual: {yoy_sales:.0f}%)")
+    top10 = df.sort_values(col_val_2026, ascending=False).head(10)
+    share = top10[col_val_2026].sum() / sales_2026 * 100 if sales_2026 else 0
+
+    st.write(f"Top 10 share in 2026: **{share:.0f}%**")
+
+    if share > 50:
+        st.success("Top 10 share >50% → strong portfolio concentration")
     else:
-        st.info(f"Stable performance (Actual: {yoy_sales:.0f}%)")
+        st.warning("Top 10 share <50% → portfolio fragmented")
+
+    st.plotly_chart(px.pie(top10, names=col_desc, values=col_val_2026))
 
     st.divider()
 
@@ -89,16 +85,8 @@ if uploaded_file:
 
     brand = df.groupby(col_brand).agg({
         col_val_2025: "sum",
-        col_val_2026: "sum",
-        col_qty_2025: "sum",
-        col_qty_2026: "sum"
+        col_val_2026: "sum"
     }).reset_index()
-
-    brand["Share 2025 (%)"] = brand[col_val_2025] / brand[col_val_2025].sum() * 100
-    brand["Share 2026 (%)"] = brand[col_val_2026] / brand[col_val_2026].sum() * 100
-
-    brand = brand.sort_values(col_val_2026, ascending=False)
-    brand.index = range(1, len(brand)+1)
 
     colA, colB = st.columns(2)
 
@@ -110,7 +98,7 @@ if uploaded_file:
         st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2026,
                               title="Brand Share 2026"))
 
-    st.dataframe(brand)
+    st.dataframe(brand[[col_brand, col_val_2025, col_val_2026]])
 
     st.divider()
 
@@ -120,14 +108,14 @@ if uploaded_file:
     c1, c2 = st.columns(2)
 
     with c1:
-        d = df.sort_values(col_val_2026, ascending=False).head(10)
-        d.index = range(1, len(d)+1)
-        st.dataframe(d[[col_code, col_desc, col_val_2026, col_qty_2026]])
+        st.write("2025")
+        d = df.sort_values(col_val_2025, ascending=False).head(10)
+        st.dataframe(d[[col_code, col_desc, col_val_2025, col_qty_2025]])
 
     with c2:
-        d = df.sort_values(col_val_2025, ascending=False).head(10)
-        d.index = range(1, len(d)+1)
-        st.dataframe(d[[col_code, col_desc, col_val_2025, col_qty_2025]])
+        st.write("2026")
+        d = df.sort_values(col_val_2026, ascending=False).head(10)
+        st.dataframe(d[[col_code, col_desc, col_val_2026, col_qty_2026]])
 
     st.divider()
 
@@ -140,14 +128,14 @@ if uploaded_file:
     c1, c2 = st.columns(2)
 
     with c1:
-        d = dfb.sort_values(col_val_2026, ascending=False).head(10)
-        d.index = range(1, len(d)+1)
-        st.dataframe(d[[col_code, col_desc, col_val_2026, col_qty_2026]])
+        st.write("2025")
+        d = dfb[dfb[col_val_2025] > 0].sort_values(col_val_2025, ascending=False).head(10)
+        st.dataframe(d[[col_code, col_desc, col_val_2025]])
 
     with c2:
-        d = dfb.sort_values(col_val_2025, ascending=False).head(10)
-        d.index = range(1, len(d)+1)
-        st.dataframe(d[[col_code, col_desc, col_val_2025, col_qty_2025]])
+        st.write("2026")
+        d = dfb[dfb[col_val_2026] > 0].sort_values(col_val_2026, ascending=False).head(10)
+        st.dataframe(d[[col_code, col_desc, col_val_2026]])
 
     st.divider()
 
@@ -158,29 +146,29 @@ if uploaded_file:
     yoy["YoY (%)"] = ((yoy[col_val_2026] - yoy[col_val_2025]) / yoy[col_val_2025]) * 100
     yoy = yoy.replace([float("inf")], 100)
 
-    tab1, tab2 = st.tabs(["2026", "2025"])
+    tab1, tab2 = st.tabs(["2025", "2026"])
 
     with tab1:
-        d = yoy.sort_values(col_val_2026, ascending=False).head(10)
-        st.dataframe(d[[col_code, col_desc, col_val_2026, "YoY (%)"]])
-
-    with tab2:
         d = yoy.sort_values(col_val_2025, ascending=False).head(10)
         st.dataframe(d[[col_code, col_desc, col_val_2025, "YoY (%)"]])
+
+    with tab2:
+        d = yoy.sort_values(col_val_2026, ascending=False).head(10)
+        st.dataframe(d[[col_code, col_desc, col_val_2026, "YoY (%)"]])
 
     st.divider()
 
     # ================= PORTFOLIO =================
     st.subheader("🎯 Portfolio Optimization")
 
-    tab1, tab2 = st.tabs(["2026", "2025"])
+    tab1, tab2 = st.tabs(["2025", "2026"])
 
     with tab1:
-        p = df.sort_values(col_val_2026, ascending=False).head(10)
-        st.dataframe(p[[col_code, col_desc, col_val_2026]])
-        st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2026))
-
-    with tab2:
         p = df.sort_values(col_val_2025, ascending=False).head(10)
         st.dataframe(p[[col_code, col_desc, col_val_2025]])
         st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2025))
+
+    with tab2:
+        p = df.sort_values(col_val_2026, ascending=False).head(10)
+        st.dataframe(p[[col_code, col_desc, col_val_2026]])
+        st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2026))
