@@ -153,26 +153,37 @@ if uploaded_file:
     st.divider()
 
     # ================= YOY =================
-    st.subheader("📈 YoY Analysis")
+    st.subheader("📈 YoY Analysis (All Products)")
 
-    df_yoy = df.copy()
-    df_yoy["YoY Value (%)"] = ((df_yoy[col_val_2026] - df_yoy[col_val_2025]) / df_yoy[col_val_2025]) * 100
-    df_yoy["YoY Qty (%)"] = ((df_yoy[col_qty_2026] - df_yoy[col_qty_2025]) / df_yoy[col_qty_2025]) * 100
-    df_yoy = df_yoy.replace([float("inf"), -float("inf")], 0)
+df_yoy = df.copy()
 
-    tab1, tab2 = st.tabs(["2025 view", "2026 view"])
+# YoY calculation (2026 vs 2025)
+df_yoy["YoY Value (%)"] = ((df_yoy[col_val_2026] - df_yoy[col_val_2025]) / df_yoy[col_val_2025]) * 100
+df_yoy["YoY Qty (%)"] = ((df_yoy[col_qty_2026] - df_yoy[col_qty_2025]) / df_yoy[col_qty_2025]) * 100
 
-    with tab1:
-        d = df_yoy.sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
-        d.index = d.index + 1
-        d["YoY Value (%)"] = d["YoY Value (%)"].apply(yoy_format)
-        st.dataframe(d[[col_code, col_desc, col_val_2025, "YoY Value (%)"]])
+df_yoy = df_yoy.replace([float("inf"), -float("inf")], 0)
 
-    with tab2:
-        d = df_yoy.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
-        d.index = d.index + 1
-        d["YoY Value (%)"] = d["YoY Value (%)"].apply(yoy_format)
-        st.dataframe(d[[col_code, col_desc, col_val_2026, "YoY Value (%)"]])
+# sort by 2026 (descending)
+df_yoy = df_yoy.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
+
+# numerowanie 1,2,3...
+df_yoy.index = df_yoy.index + 1
+
+# formatowanie %
+df_yoy["YoY Value (%)"] = df_yoy["YoY Value (%)"].apply(yoy_format)
+df_yoy["YoY Qty (%)"] = df_yoy["YoY Qty (%)"].apply(yoy_format)
+
+# final table
+st.dataframe(df_yoy[[
+    col_code,
+    col_desc,
+    col_val_2025,
+    col_val_2026,
+    col_qty_2025,
+    col_qty_2026,
+    "YoY Value (%)",
+    "YoY Qty (%)"
+]])
 
     st.divider()
 
