@@ -2,6 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+def yoy_format(v):
+    if pd.isna(v):
+        return "0%"
+
+    arrow = "🟢 ↑" if v > 0 else "🔴 ↓"
+    return f"{v:.0f}% {arrow}"
+
 st.set_page_config(layout="wide")
 st.title("🎈 Foil Balloons Sales Dashboard")
 
@@ -45,7 +52,14 @@ if uploaded_file:
             lambda x: "Foil" if "foil" in x else "Other"
         )
 
-    df = df[df["Category Clean"].str.lower() == "foil"]
+    if col_category in df.columns:
+    df["Category Clean"] = df[col_category].fillna("").astype(str)
+else:
+    df["Category Clean"] = df[col_desc].fillna("").astype(str).str.lower().apply(
+        lambda x: "Foil" if "foil" in x else "Other"
+    )
+
+df = df[df["Category Clean"].astype(str).str.lower().str.contains("foil")]
     df = df[df[col_desc].notna()]
     df = df[df[col_desc].astype(str).str.lower() != "none"]
 
@@ -136,52 +150,48 @@ if uploaded_file:
     # ================= YOY =================
     st.subheader("📈 YoY Analysis")
 
-    tab1, tab2 = st.tabs(["2025", "2026"])
+df_yoy = df.copy()
 
-    with tab1:
-        d = df.copy()
-        d["YoY (%)"] = ((d[col_val_2025] - d[col_val_2026]) / d[col_val_2026]) * 100
-        d = d.replace([float("inf")], 100)
-        d = d.sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
-        d.index = d.index + 1
-        st.dataframe(d[[col_code, col_desc, col_val_2025, "YoY (%)"]])
+df_yoy["YoY Value (%)"] = ((df_yoy[col_val_2026] - df_yoy[col_val_2025]) / df_yoy[col_val_2025]) * 100
+df_yoy["YoY Qty (%)"] = ((df_yoy[col_qty_2026] - df_yoy[col_qty_2025]) / df_yoy[col_qty_2025]) * 100
 
-    with tab2:
-        d = df.copy()
-        d["YoY (%)"] = ((d[col_val_2026] - d[col_val_2025]) / d[col_val_2025]) * 100
-        d = d.replace([float("inf")], 100)
-        d = d.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
-        d.index = d.index + 1
-        st.dataframe(d[[col_code, col_desc, col_val_2026, "YoY (%)"]])
+df_yoy = df_yoy.replace([float("inf"), -float("inf")], 0)
+
+tab1, tab2 = st.tabs(["2025 view", "2026 view"])
+
+with tab1:
+    d = df_yoy.sort_values(col_val_2025, ascending=False).head(10).reset_index(drop=True)
+    d.index = d.index + 1
+
+    d["YoY Value (%)"] = d["YoY Value (%)"].apply(yoy_format)
+
+    st.dataframe(d[[col_code, col_desc, col_val_2025, "YoY Value (%)"]])
+
+with tab2:
+    d = df_yoy.sort_values(col_val_2026, ascending=False).head(10).reset_index(drop=True)
+    d.index = d.index + 1
+
+    d["YoY Value (%)"] = d["YoY Value (%)"].apply(yoy_format)
+
+    st.dataframe(d[[col_code, col_desc, col_val_2026, "YoY Value (%)"]])
 
     st.divider()
 
     # ================= PORTFOLIO =================
-    st.subheader("🎯 Portfolio Optimization")
+   st.subheader("🎯 Portfolio Optimization")
 
-    tab1, tab2 = st.tabs(["2025", "2026"])
+tab1, tab2 = st.tabs(["2025", "2026"])
 
-    with tab1:
-        p = df.sort_values(col_val_2025, ascending=False).head(10)
-        st.dataframe(p[[col_code, col_desc, col_val_2025]])
-        st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2025))
+with tab1:
+    p = df.sort_values(col_val_2025, ascending=False).head(10)
+    st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2025))
 
-    with tab2:
-        p = df.sort_values(col_val_2026, ascending=False).head(10)
-        st.dataframe(p[[col_code, col_desc, col_val_2026]])
-        st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2026))
+    share_2025 = p[col_val_2025].sum() / sales_2025 * 100 if sales_2025 else 0
+    st.markdown(f"📊 Top 10 Concentration 2025: **{share_2025:.0f}%**")
 
-    st.divider()
+with tab2:
+    p = df.sort_values(col_val_2026, ascending=False).head(10)
+    st.plotly_chart(px.pie(p, names=col_desc, values=col_val_2026))
 
-    # ================= CONCENTRATION =================
-    st.subheader("📊 Top 10 Concentration")
-
-    top10 = df.sort_values(col_val_2026, ascending=False).head(10)
-    share = top10[col_val_2026].sum() / sales_2026 * 100 if sales_2026 else 0
-
-    st.markdown(f"**Top 10 Products Share (2026): {share:.0f}%**")
-
-    if share > 50:
-        st.success("High concentration → portfolio driven by key SKUs")
-    else:
-        st.warning("Low concentration → fragmented portfolio")
+    share_2026 = p[col_val_2026].sum() / sales_2026 * 100 if sales_2026 else 0
+    st.markdown(f"📊 Top 10 Concentration 2026: **{share_2026:.0f}%**")
