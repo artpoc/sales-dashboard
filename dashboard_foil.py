@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-st.title("🎈 Foil Balloons Sales Dashboard - Company A")
+st.title("🎈 Foil Balloons Sales Dashboard")
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
@@ -27,11 +27,26 @@ if uploaded_file:
     # ---------- COLUMN DETECTION ----------
     col_brand = find_column("brand")
     col_desc = find_column("article")
+    col_code = find_column("code")
 
     col_val_2025 = [c for c in df.columns if "2025" in c and "value" in c.lower()][0]
     col_val_2026 = [c for c in df.columns if "2026" in c and "value" in c.lower()][0]
     col_qty_2025 = [c for c in df.columns if "2025" in c and "quantity" in c.lower()][0]
     col_qty_2026 = [c for c in df.columns if "2026" in c and "quantity" in c.lower()][0]
+
+    # ---------- CUSTOMER INFO ----------
+    st.subheader("👤 Customer Information")
+
+    customer_name = find_column("customer")
+    country = find_column("country")
+    vat = find_column("vat")
+
+    col1, col2, col3 = st.columns(3)
+    col1.write(f"**Customer:** {df[customer_name].iloc[0] if customer_name else '-'}")
+    col2.write(f"**Country:** {df[country].iloc[0] if country else '-'}")
+    col3.write(f"**VAT ID:** {df[vat].iloc[0] if vat else '-'}")
+
+    st.divider()
 
     # ---------- FILTER ----------
     df["Category"] = df[col_desc].astype(str).str.lower().apply(
@@ -39,10 +54,14 @@ if uploaded_file:
     )
     df = df[df["Category"] == "Foil"]
 
+    # usuń None
+    df = df[df[col_desc].notna()]
+    df = df[df[col_desc].astype(str).str.lower() != "none"]
+
     st.success("Dataset filtered: Foil balloons only")
 
     # ================= KPI =================
-    st.markdown("### 💰 All values are in EURO (€) | 📦 Quantities in PCS")
+    st.markdown("### 💰 EURO (€) | 📦 PCS")
 
     sales_2025 = df[col_val_2025].sum()
     sales_2026 = df[col_val_2026].sum()
@@ -55,21 +74,8 @@ if uploaded_file:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Sales 2025 (€)", f"{sales_2025:,.0f}")
     c2.metric("Sales 2026 (€)", f"{sales_2026:,.0f}", f"{yoy_sales:.0f}%")
-    c3.metric("Quantity 2025 (PCS)", f"{qty_2025:,.0f}")
-    c4.metric("Quantity 2026 (PCS)", f"{qty_2026:,.0f}", f"{yoy_qty:.0f}%")
-
-    st.divider()
-
-    # ================= ALERT =================
-    st.subheader("🚨 Sales Alerts")
-    st.caption("Comparison: 2026 vs 2025")
-
-    if yoy_sales < -20:
-        st.error(f"Sales decline >20% (Actual: {yoy_sales:.0f}%)")
-    elif yoy_sales > 20:
-        st.success(f"Sales growth >20% (Actual: {yoy_sales:.0f}%)")
-    else:
-        st.info(f"Threshold ±20% NOT exceeded (Actual: {yoy_sales:.0f}%)")
+    c3.metric("Quantity 2025", f"{qty_2025:,.0f}")
+    c4.metric("Quantity 2026", f"{qty_2026:,.0f}", f"{yoy_qty:.0f}%")
 
     st.divider()
 
@@ -78,115 +84,80 @@ if uploaded_file:
 
     brand = df.groupby(col_brand).agg({
         col_val_2025: "sum",
-        col_val_2026: "sum",
-        col_qty_2025: "sum",
-        col_qty_2026: "sum"
+        col_val_2026: "sum"
     }).reset_index()
 
-    brand["Share 2025 (%)"] = brand[col_val_2025] / brand[col_val_2025].sum() * 100
-    brand["Share 2026 (%)"] = brand[col_val_2026] / brand[col_val_2026].sum() * 100
-
-    brand["YoY Value (%)"] = ((brand[col_val_2026] - brand[col_val_2025]) / brand[col_val_2025]) * 100
-    brand["YoY Qty (%)"] = ((brand[col_qty_2026] - brand[col_qty_2025]) / brand[col_qty_2025]) * 100
-
-    brand = brand.replace([float("inf")], 100)
-    brand = brand.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
-    brand.index = brand.index + 1
-
-    # 📊 BAR
-    st.plotly_chart(
-        px.bar(brand, x=col_brand, y=[col_val_2025, col_val_2026],
-               barmode="group", title="Sales by Brand (€)"),
-        use_container_width=True
-    )
-
-    # 🥧 PIE 2025 / 2026
     colA, colB = st.columns(2)
 
     with colA:
-        st.plotly_chart(
-            px.pie(brand, names=col_brand, values=col_val_2025,
-                   title="Brand Share 2025 (%)"),
-            use_container_width=True
-        )
+        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2025,
+                              title="Brand Share 2025"))
 
     with colB:
-        st.plotly_chart(
-            px.pie(brand, names=col_brand, values=col_val_2026,
-                   title="Brand Share 2026 (%)"),
-            use_container_width=True
-        )
-
-    # format %
-    brand_display = brand.copy()
-    for col in ["Share 2025 (%)", "Share 2026 (%)", "YoY Value (%)", "YoY Qty (%)"]:
-        brand_display[col] = brand_display[col].apply(format_percent)
-
-    st.dataframe(brand_display)
+        st.plotly_chart(px.pie(brand, names=col_brand, values=col_val_2026,
+                              title="Brand Share 2026"))
 
     st.divider()
 
-    # ================= PRODUCTS IN BRAND =================
+    # ================= TOP PRODUCTS IN BRAND =================
     st.subheader("📊 Top Products within Brand")
 
     selected_brand = st.selectbox("Select Brand", df[col_brand].dropna().unique())
     df_brand = df[df[col_brand] == selected_brand]
 
-    st.write("Top Products 2026 (€ & PCS)")
-    prod_2026 = df_brand.sort_values(col_val_2026, ascending=False).head(10)
-    prod_2026.index = range(1, len(prod_2026) + 1)
-    st.dataframe(prod_2026[[col_desc, col_val_2026, col_qty_2026]])
+    st.write("Top 2026")
+    top_2026 = df_brand.sort_values(col_val_2026, ascending=False).head(10)
+    top_2026.index = range(1, len(top_2026) + 1)
 
-    st.write("Top Products 2025 (€ & PCS)")
-    prod_2025 = df_brand.sort_values(col_val_2025, ascending=False).head(10)
-    prod_2025.index = range(1, len(prod_2025) + 1)
-    st.dataframe(prod_2025[[col_desc, col_val_2025, col_qty_2025]])
+    st.dataframe(top_2026[[col_code, col_desc, col_val_2026, col_qty_2026]])
+
+    st.write("Top 2025")
+    top_2025 = df_brand.sort_values(col_val_2025, ascending=False).head(10)
+    top_2025.index = range(1, len(top_2025) + 1)
+
+    st.dataframe(top_2025[[col_code, col_desc, col_val_2025, col_qty_2025]])
 
     st.divider()
 
     # ================= YOY =================
     st.subheader("📈 YoY Analysis")
 
+    tab1, tab2 = st.tabs(["2026", "2025"])
+
     yoy = df.copy()
     yoy["YoY Value (%)"] = ((yoy[col_val_2026] - yoy[col_val_2025]) / yoy[col_val_2025]) * 100
     yoy["YoY Qty (%)"] = ((yoy[col_qty_2026] - yoy[col_qty_2025]) / yoy[col_qty_2025]) * 100
-
     yoy = yoy.replace([float("inf")], 100)
 
-    st.write("Top by Sales Value 2026")
-    yoy_val = yoy.sort_values(col_val_2026, ascending=False).head(10)
-    yoy_val["YoY Value (%)"] = yoy_val["YoY Value (%)"].apply(format_percent)
-    st.dataframe(yoy_val[[col_desc, col_val_2026, "YoY Value (%)"]])
+    with tab1:
+        st.write("Top by Value (2026)")
+        d = yoy.sort_values(col_val_2026, ascending=False).head(10)
+        d["YoY Value (%)"] = d["YoY Value (%)"].apply(format_percent)
+        st.dataframe(d[[col_code, col_desc, col_val_2026, "YoY Value (%)"]])
 
-    st.write("Top by Quantity 2026")
-    yoy_qty_df = yoy.sort_values(col_qty_2026, ascending=False).head(10)
-    yoy_qty_df["YoY Qty (%)"] = yoy_qty_df["YoY Qty (%)"].apply(format_percent)
-    st.dataframe(yoy_qty_df[[col_desc, col_qty_2026, "YoY Qty (%)"]])
+    with tab2:
+        st.write("Top by Value (2025)")
+        d = yoy.sort_values(col_val_2025, ascending=False).head(10)
+        d["YoY Value (%)"] = d["YoY Value (%)"].apply(format_percent)
+        st.dataframe(d[[col_code, col_desc, col_val_2025, "YoY Value (%)"]])
 
     st.divider()
 
     # ================= PORTFOLIO =================
     st.subheader("🎯 Portfolio Optimization")
 
-    portfolio = df.sort_values(col_val_2026, ascending=False)
-    top10 = portfolio.head(10)
+    tab1, tab2 = st.tabs(["2026", "2025"])
 
-    top10.index = range(1, len(top10) + 1)
-    st.dataframe(top10[[col_desc, col_val_2026]])
+    with tab1:
+        port = df.sort_values(col_val_2026, ascending=False).head(10)
+        st.dataframe(port[[col_code, col_desc, col_val_2026]])
 
-    st.plotly_chart(
-        px.pie(top10, names=col_desc, values=col_val_2026,
-               title="Top 10 Products Share (2026 €)"),
-        use_container_width=True
-    )
+        st.plotly_chart(px.pie(port, names=col_desc, values=col_val_2026,
+                               title="Top 10 Share 2026"))
 
-    share = top10[col_val_2026].sum() / df[col_val_2026].sum() * 100
+    with tab2:
+        port = df.sort_values(col_val_2025, ascending=False).head(10)
+        st.dataframe(port[[col_code, col_desc, col_val_2025]])
 
-    st.metric("Top 10 Share (%)", f"{share:.0f}%")
-
-    if share > 70:
-        st.warning("High concentration risk")
-    elif share > 50:
-        st.info("Moderate concentration")
-    else:
-        st.success("Diversified portfolio")
+        st.plotly_chart(px.pie(port, names=col_desc, values=col_val_2025,
+                               title="Top 10 Share 2025"))
