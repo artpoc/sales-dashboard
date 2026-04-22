@@ -180,10 +180,18 @@ if uploaded_file:
 
     df_yoy = df.copy()
 
-    df_yoy["YoY Value (%)"] = ((df_yoy[col_val_2026] - df_yoy[col_val_2025]) / df_yoy[col_val_2025]) * 100
-    df_yoy["YoY Qty (%)"] = ((df_yoy[col_qty_2026] - df_yoy[col_qty_2025]) / df_yoy[col_qty_2025]) * 100
+   def calc_yoy(new, old):
+    if old == 0 and new > 0:
+        return 100
+    elif old > 0 and new == 0:
+        return -100
+    elif old == 0 and new == 0:
+        return 0
+    else:
+        return (new - old) / old * 100
 
-    df_yoy = df_yoy.replace([float("inf"), -float("inf")], 0)
+df_yoy["YoY Value (%)"] = df_yoy.apply(lambda x: calc_yoy(x[col_val_2026], x[col_val_2025]), axis=1)
+df_yoy["YoY Qty (%)"] = df_yoy.apply(lambda x: calc_yoy(x[col_qty_2026], x[col_qty_2025]), axis=1)
 
     df_yoy = df_yoy.sort_values(col_val_2026, ascending=False).reset_index(drop=True)
     df_yoy.index = df_yoy.index + 1
