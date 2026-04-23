@@ -170,17 +170,33 @@ if uploaded_file:
     st.divider()
 
     # ================= TOP PRODUCTS =================
-    st.markdown("## 🏆 Top Products")
+st.markdown("## 🏆 Top Products")
 
-    c1,c2 = st.columns(2)
+c1,c2 = st.columns(2)
 
-    with c1:
-        d = add_index(df.sort_values(val25, ascending=False).head(10))
-        st.dataframe(d[[col_code,col_desc,val25,qty25]])
+with c1:
+    d = df.sort_values(val25, ascending=False).head(10)
+    d_idx = add_index(d)
 
-    with c2:
-        d = add_index(df.sort_values(val26, ascending=False).head(10))
-        st.dataframe(d[[col_code,col_desc,val26,qty26]])
+    st.dataframe(d_idx[[col_code,col_desc,val25,qty25]])
+
+    fig = px.pie(d, names=col_desc, values=val25, title="Top 10 Share 2025")
+    st.plotly_chart(fig)
+
+    share = d[val25].sum() / s25 * 100 if s25 else 0
+    st.write(f"Top 10 Share 2025: {share:.1f}%")
+
+with c2:
+    d = df.sort_values(val26, ascending=False).head(10)
+    d_idx = add_index(d)
+
+    st.dataframe(d_idx[[col_code,col_desc,val26,qty26]])
+
+    fig = px.pie(d, names=col_desc, values=val26, title="Top 10 Share 2026")
+    st.plotly_chart(fig)
+
+    share = d[val26].sum() / s26 * 100 if s26 else 0
+    st.write(f"Top 10 Share 2026: {share:.1f}%")
 
     st.divider()
 
