@@ -200,13 +200,7 @@ if uploaded_file:
 
     st.divider()
 
-    # ================= TOP 10 =================
-    st.markdown("## 🔟 TOP 10 Products")
-
-    st.dataframe(add_index(df.sort_values(val26, ascending=False).head(10)[[col_code,col_desc,val26]]))
-
-    st.divider()
-
+    
     # ================= PARETO =================
     st.markdown("## 📊 Pareto Analysis")
 
@@ -220,9 +214,14 @@ if uploaded_file:
 
             top80 = p[p["cum"] <= 0.8]
 
-            st.write(f"SKU generating 80%: {len(top80)} / {len(p)}")
+            st.write(f"Top SKU for 80%: {len(top80)} / {len(p)}")
 
-        st.dataframe(add_index(top80[[col_desc,val25,val26]]))
+            # wykres Pareto
+            fig = px.bar(p, x=col_desc, y=val)
+            fig.add_scatter(x=p[col_desc], y=p["cum"], mode="lines+markers", name="Cumulative %")
+            st.plotly_chart(fig)
+
+            st.dataframe(add_index(top80[[col_desc,val25,val26]]))
 
     st.divider()
 
@@ -252,7 +251,7 @@ if uploaded_file:
     df_yoy["YoY raw"] = df_yoy.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     df_yoy["YoY %"] = df_yoy["YoY raw"].apply(yoy_format)
 
-    df_yoy = add_index(df_yoy.sort_values("YoY raw", ascending=False))
+    df_yoy = add_index(df_yoy.sort_values(val26, ascending=False))
 
     st.dataframe(df_yoy[[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]])
 
