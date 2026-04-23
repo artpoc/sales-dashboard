@@ -292,17 +292,17 @@ if uploaded_file:
     st.markdown("## 📈 YoY Analysis")
 
     df_yoy = df.groupby([col_code, col_desc]).agg({
-        val25:"sum",
-        val26:"sum",
-        qty25:"sum",
-        qty26:"sum"
+        val25: "sum",
+        val26: "sum",
+        qty25: "sum",
+        qty26: "sum"
     }).reset_index()
 
-    df_yoy["YoY raw"] = df_yoy.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
-    df_yoy["YoY %"] = df_yoy["YoY raw"].apply(yoy_format)
+    df_yoy["YoY %"] = df_yoy.apply(lambda x: yoy_format(calc_yoy(x[val26], x[val25])), axis=1)
 
     st.dataframe(add_index(
         df_yoy.sort_values(val26, ascending=False)
+        [[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]]
     ))
 
     st.divider()
