@@ -143,6 +143,12 @@ if uploaded_file:
             val26: "sum"
         }).reset_index()
 
+        with c1:
+        st.markdown("### 2025")
+
+        with c2:
+        st.markdown("### 2026")
+
         cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
         cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
 
