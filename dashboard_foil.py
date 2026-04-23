@@ -95,6 +95,12 @@ if uploaded_file:
     if selected_customer != "All Customers":
         df = df[df[col_customer] == selected_customer]
 
+    # ================= DATA CONTEXT =================
+    if selected_customer == "All Customers":
+        df_context = df_original_all.copy()
+    else:
+        df_context = df.copy()
+
     # ================= CUSTOMER INFO =================
     st.subheader("👤 Customer Information")
 
@@ -138,7 +144,7 @@ if uploaded_file:
     if selected == "All Categories":
         st.markdown("## 📊 Category Performance")
 
-        cat_perf = df_original.groupby("Category Clean").agg({
+        cat_perf = df_context.groupby("Category Clean").agg({
             val25: "sum",
             val26: "sum"
         }).reset_index()
@@ -315,41 +321,37 @@ if uploaded_file:
     # ================= AUTO INSIGHTS =================
     st.markdown("## 🧠 Auto Insights")
 
-    cat = df_original.groupby("Category Clean").agg({
+    cat = df_context.groupby("Category Clean").agg({
         val25:"sum",
         val26:"sum"
     }).reset_index()
 
+    # 🔥 FIX brakującego YoY (to powodowało KeyError)
     cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     cat["YoY %"] = cat["YoY"].apply(yoy_format)
 
-    # 🔥 TOP 3 w jednej tabeli
+    # ================= TOP 3 (jedna tabela 2025 vs 2026) =================
+    st.write("### Top 3 Categories")
+
     top3 = cat.sort_values(val26, ascending=False).head(3)
+    st.dataframe(add_index(top3[["Category Clean", val25, val26, "YoY %"]]))
 
-    st.write("### Top 3 Categories (2025 vs 2026)")
-    st.dataframe(add_index(
-        top3[["Category Clean", val25, val26, "YoY %"]]
-    ))
-
-    # 🔥 GROWTH z warunkiem
-    growth = cat[cat["YoY"] > 0].sort_values("YoY", ascending=False).head(3)
-
+    # ================= GROWTH =================
     st.write("### Growth (YoY)")
 
+    growth = cat[cat["YoY"] > 0].sort_values("YoY", ascending=False).head(3)
+
     if growth.empty:
-        st.info("No category growth detected.")
+        st.info("There is no growth in categories")
     else:
-        st.dataframe(add_index(
-            growth[["Category Clean", val25, val26, "YoY %"]]
-        ))
+        st.dataframe(add_index(growth[["Category Clean", val25, val26, "YoY %"]]))
 
-    # 🔥 RISK zawsze pokazujemy
+    # ================= RISK =================
+    st.write("### Risk")
+
     risk = cat.sort_values("YoY").head(3)
+    st.dataframe(add_index(risk[["Category Clean", val25, val26, "YoY %"]]))
 
-    st.write("### Risk (YoY)")
-    st.dataframe(add_index(
-        risk[["Category Clean", val25, val26, "YoY %"]]
-    ))
     st.divider()
 
     # ================= CLIENT SCORE =================
