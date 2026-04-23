@@ -47,6 +47,7 @@ def add_index(df):
     df.index = df.index + 1
     return df
 
+# ================= MAIN =================
 if uploaded_file:
 
     df = pd.read_excel(uploaded_file)
@@ -102,6 +103,60 @@ if uploaded_file:
 
     st.divider()
 
+    # ================= BRAND =================
+    st.markdown("## 🏷️ Brand Performance")
+
+    brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
+
+    c1,c2 = st.columns(2)
+
+    with c1:
+        st.markdown("### 2025")
+        b = add_index(brand.sort_values(val25, ascending=False))
+        st.plotly_chart(px.pie(b, names=col_brand, values=val25))
+        st.dataframe(b[[col_brand,val25]])
+
+    with c2:
+        st.markdown("### 2026")
+        b = add_index(brand.sort_values(val26, ascending=False))
+        st.plotly_chart(px.pie(b, names=col_brand, values=val26))
+        st.dataframe(b[[col_brand,val26]])
+
+    st.divider()
+
+    # ================= TOP PRODUCTS =================
+    st.markdown("## 🏆 Top Products")
+
+    c1,c2 = st.columns(2)
+
+    with c1:
+        d = add_index(df[df[val25]>0].sort_values(val25, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val25,qty25]])
+
+    with c2:
+        d = add_index(df[df[val26]>0].sort_values(val26, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val26,qty26]])
+
+    st.divider()
+
+    # ================= TOP PRODUCTS IN BRAND =================
+    st.markdown("## 📊 Top Products within Brand")
+
+    brand_sel = st.selectbox("Select Brand", df[col_brand].unique())
+    dfb = df[df[col_brand] == brand_sel]
+
+    c1,c2 = st.columns(2)
+
+    with c1:
+        d = add_index(dfb[dfb[val25]>0].sort_values(val25, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val25]])
+
+    with c2:
+        d = add_index(dfb[dfb[val26]>0].sort_values(val26, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val26]])
+
+    st.divider()
+
     # ================= YOY =================
     st.markdown("## 📈 YoY Analysis (2026 vs 2025)")
 
@@ -115,59 +170,67 @@ if uploaded_file:
 
     st.divider()
 
+    # ================= PORTFOLIO =================
+    st.markdown("## 🎯 Portfolio Optimization")
+
+    tab1, tab2 = st.tabs(["2025","2026"])
+
+    with tab1:
+        p = add_index(df.sort_values(val25, ascending=False).head(10))
+        st.plotly_chart(px.pie(p, names=col_desc, values=val25))
+        share = p[val25].sum()/s25*100 if s25 else 0
+        st.write(f"Top10 Share 2025: {share:.0f}%")
+
+    with tab2:
+        p = add_index(df.sort_values(val26, ascending=False).head(10))
+        st.plotly_chart(px.pie(p, names=col_desc, values=val26))
+        share = p[val26].sum()/s26*100 if s26 else 0
+        st.write(f"Top10 Share 2026: {share:.0f}%")
+
+    st.divider()
+
     # ================= AUTO INSIGHTS =================
     st.markdown("## 🧠 Auto Insights")
 
-    cat = df.groupby("Category Clean").agg({
-        val25:"sum", val26:"sum",
-        qty25:"sum", qty26:"sum"
-    }).reset_index()
+    cat = df.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
+    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
     tab1, tab2 = st.tabs(["2025","2026"])
 
     with tab1:
         top = cat.sort_values(val25, ascending=False).iloc[0]
-        st.success(f"Top 2025: {top['Category Clean']} | €{top[val25]:,.0f} | {top[qty25]:,.0f} pcs")
+        st.success(f"Top Category 2025: {top['Category Clean']} (€{top[val25]:,.0f})")
 
     with tab2:
         top = cat.sort_values(val26, ascending=False).iloc[0]
-        st.success(f"Top 2026: {top['Category Clean']} | €{top[val26]:,.0f} | {top[qty26]:,.0f} pcs")
+        growth = cat.sort_values("YoY", ascending=False).iloc[0]
+        risk = cat.sort_values("YoY").iloc[0]
 
-    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
-
-    growth = cat.sort_values("YoY", ascending=False).iloc[0]
-    risk = cat.sort_values("YoY").iloc[0]
-
-    st.info(f"Growth: {growth['Category Clean']} | {growth['YoY']:.0f}% | €{growth[val26]:,.0f}")
-    st.warning(f"Risk: {risk['Category Clean']} | {risk['YoY']:.0f}% | €{risk[val26]:,.0f}")
+        st.success(f"Top Category 2026: {top['Category Clean']} (€{top[val26]:,.0f})")
+        st.info(f"Growth: {growth['Category Clean']} ({growth['YoY']:.0f}%)")
+        st.warning(f"Risk: {risk['Category Clean']} ({risk['YoY']:.0f}%)")
 
     st.divider()
 
     # ================= BRAND INSIGHTS =================
     st.markdown("## 🏷️ Brand Insights")
 
-    brand = df.groupby(col_brand).agg({
-        val25:"sum", val26:"sum",
-        qty25:"sum", qty26:"sum"
-    }).reset_index()
+    brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
     tab1, tab2 = st.tabs(["2025","2026"])
 
     with tab1:
         top = brand.sort_values(val25, ascending=False).iloc[0]
-        st.success(f"Top 2025: {top[col_brand]} | €{top[val25]:,.0f}")
+        st.success(f"Top Brand 2025: {top[col_brand]} (€{top[val25]:,.0f})")
 
     with tab2:
         top = brand.sort_values(val26, ascending=False).iloc[0]
-        st.success(f"Top 2026: {top[col_brand]} | €{top[val26]:,.0f}")
+        growth = brand.sort_values("YoY", ascending=False).iloc[0]
+        risk = brand.sort_values("YoY").iloc[0]
 
-    brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
-
-    growth = brand.sort_values("YoY", ascending=False).iloc[0]
-    risk = brand.sort_values("YoY").iloc[0]
-
-    st.info(f"Growth Brand: {growth[col_brand]} | {growth['YoY']:.0f}%")
-    st.warning(f"Risk Brand: {risk[col_brand]} | {risk['YoY']:.0f}%")
+        st.success(f"Top Brand 2026: {top[col_brand]} (€{top[val26]:,.0f})")
+        st.info(f"Growth: {growth[col_brand]} ({growth['YoY']:.0f}%)")
+        st.warning(f"Risk: {risk[col_brand]} ({risk['YoY']:.0f}%)")
 
     st.divider()
 
@@ -180,17 +243,16 @@ if uploaded_file:
 
     with tab1:
         top = df.sort_values(val25, ascending=False).iloc[0]
-        st.success(f"Top 2025: {top[col_desc]} | €{top[val25]:,.0f}")
+        st.success(f"Top SKU 2025: {top[col_desc]} (€{top[val25]:,.0f})")
 
     with tab2:
         top = df.sort_values(val26, ascending=False).iloc[0]
-        st.success(f"Top 2026: {top[col_desc]} | €{top[val26]:,.0f}")
+        growth = df.sort_values("YoY raw", ascending=False).iloc[0]
+        risk = df.sort_values("YoY raw").iloc[0]
 
-    growth = df.sort_values("YoY raw", ascending=False).iloc[0]
-    risk = df.sort_values("YoY raw").iloc[0]
-
-    st.info(f"Growth SKU: {growth[col_desc]} | {growth['YoY raw']:.0f}%")
-    st.warning(f"Risk SKU: {risk[col_desc]} | {risk['YoY raw']:.0f}%")
+        st.success(f"Top SKU 2026: {top[col_desc]} (€{top[val26]:,.0f})")
+        st.info(f"Growth: {growth[col_desc]} ({growth['YoY raw']:.0f}%)")
+        st.warning(f"Risk: {risk[col_desc]} ({risk['YoY raw']:.0f}%)")
 
     st.divider()
 
@@ -199,7 +261,7 @@ if uploaded_file:
 
     yoy_total = calc_yoy(s26,s25)
 
-    st.info(f"2026 Performance: €{s26:,.0f} | {q26:,.0f} pcs")
+    st.info(f"2026 Sales: €{s26:,.0f} | Qty: {q26:,.0f}")
 
     if yoy_total > 20:
         st.success(f"A 🔥 | Growth: +{yoy_total:.0f}%")
