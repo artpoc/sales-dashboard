@@ -79,6 +79,14 @@ if uploaded_file:
     qty25 = "Quantity 2025"
     qty26 = "Quantity 2026"
 
+    # ================= CUSTOMER FILTER (NEW) =================
+    customers = ["All Customers"] + sorted(df[col_customer].dropna().unique())
+    selected_customer = st.selectbox("👥 Select Customer", customers)
+
+    if selected_customer != "All Customers":
+        df = df[df[col_customer] == selected_customer]
+
+    # ================= CUSTOMER INFO =================
     st.subheader("👤 Customer Information")
 
     c1, c2, c3 = st.columns(3)
@@ -86,6 +94,7 @@ if uploaded_file:
     c2.write(f"**Country:** {df[col_country].iloc[0]}")
     c3.write(f"**VAT:** {df[col_vat].iloc[0]}")
 
+    # ================= CATEGORY =================
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
 
     categories = ["All Categories"] + sorted(df["Category Clean"].unique())
@@ -113,65 +122,6 @@ if uploaded_file:
     k3.metric("Qty 2025", f"{q25:,.0f}")
     k4.metric("Qty 2026", f"{q26:,.0f}", f"{calc_yoy(q26,q25):+.0f}%")
 
-    # ================= CATEGORY PERFORMANCE =================
-    if selected == "All Categories":
-        st.markdown("## 📊 Category Performance")
-
-        cat_perf = df_original.groupby("Category Clean").agg({
-            val25: "sum",
-            val26: "sum"
-        }).reset_index()
-
-        cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
-        cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
-
-        color_map_cat = create_color_map(cat_perf["Category Clean"])
-
-        c1,c2 = st.columns(2)
-
-        with c1:
-            st.markdown("### 2025")
-            c = add_index(cat_perf.sort_values(val25, ascending=False))
-            st.plotly_chart(px.pie(c, names="Category Clean", values=val25,
-                                  color="Category Clean", color_discrete_map=color_map_cat))
-            st.dataframe(c[["Category Clean", val25, "YoY %"]])
-
-        with c2:
-            st.markdown("### 2026")
-            c = add_index(cat_perf.sort_values(val26, ascending=False))
-            st.plotly_chart(px.pie(c, names="Category Clean", values=val26,
-                                  color="Category Clean", color_discrete_map=color_map_cat))
-            st.dataframe(c[["Category Clean", val26, "YoY %"]])
-
-    st.divider()
-
-    # ================= BRAND =================
-    st.markdown("## 🏷️ Brand Performance")
-
-    brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
-    brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
-    brand["YoY %"] = brand["YoY"].apply(yoy_format)
-
-    color_map_brand = create_color_map(brand[col_brand])
-
-    c1,c2 = st.columns(2)
-
-    with c1:
-        st.markdown("### 2025")
-        b = add_index(brand.sort_values(val25, ascending=False))
-        st.plotly_chart(px.pie(b, names=col_brand, values=val25,
-                              color=col_brand, color_discrete_map=color_map_brand))
-        st.dataframe(b[[col_brand,val25,"YoY %"]])
-
-    with c2:
-        st.markdown("### 2026")
-        b = add_index(brand.sort_values(val26, ascending=False))
-        st.plotly_chart(px.pie(b, names=col_brand, values=val26,
-                              color=col_brand, color_discrete_map=color_map_brand))
-        st.dataframe(b[[col_brand,val26,"YoY %"]])
-
-    st.divider()
-
     # ================= TOP PRODUCTS =================
     st.markdown("## 🏆 Top Products")
 
@@ -187,33 +137,59 @@ if uploaded_file:
 
     st.divider()
 
-    # ================= PARETO =================
+    # ================= PARETO (UPDATED) =================
     st.markdown("## 📊 Pareto 80/20 Analysis")
 
-    pareto = df.groupby(col_desc).agg({
-        val25:"sum",
-        val26:"sum"
-    }).reset_index()
+    tab1, tab2 = st.tabs(["2025","2026"])
 
-    pareto = pareto.sort_values(val26, ascending=False)
-    pareto["cum_share"] = pareto[val26].cumsum() / pareto[val26].sum()
+    for year, val in zip([tab1, tab2], [val25, val26]):
+        with year:
+            p = df.groupby(col_desc).agg({val:"sum", val25:"sum", val26:"sum"}).reset_index()
+            p = p.sort_values(val, ascending=False)
 
-    top80 = pareto[pareto["cum_share"] <= 0.8]
-    rest20 = pareto[pareto["cum_share"] > 0.8]
+            p["cum_share"] = p[val].cumsum() / p[val].sum()
+            p["YoY"] = p.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
+            p["YoY %"] = p["YoY"].apply(yoy_format)
 
-    st.write(f"Top SKU for 80%: {len(top80)} / {len(pareto)}")
+            top80 = p[p["cum_share"] <= 0.8]
+            rest20 = p[p["cum_share"] > 0.8]
 
-    st.dataframe(add_index(top80[[col_desc,val25,val26]]))
+            st.write(f"Top SKU for 80%: {len(top80)} / {len(p)}")
 
-    # ================= ABC =================
+            color_map = create_color_map(["Top 80%","Rest 20%"])
+            pie_df = pd.DataFrame({
+                "Segment":["Top 80%","Rest 20%"],
+                "Value":[top80[val].sum(), rest20[val].sum()]
+            })
+
+            st.plotly_chart(px.pie(pie_df, names="Segment", values="Value",
+                                  color="Segment", color_discrete_map=color_map))
+
+            st.dataframe(add_index(top80[[col_desc,val25,val26,"YoY %"]]))
+
+    # ================= ABC (UPDATED) =================
     st.markdown("## 📊 ABC Analysis (70/20/10)")
 
-    abc = pareto.copy()
-    abc["segment"] = "C"
-    abc.loc[abc["cum_share"] <= 0.7, "segment"] = "A"
-    abc.loc[(abc["cum_share"] > 0.7) & (abc["cum_share"] <= 0.9), "segment"] = "B"
+    tab1, tab2 = st.tabs(["2025","2026"])
 
-    st.dataframe(add_index(abc[[col_desc,val25,val26,"segment"]]))
+    for year, val in zip([tab1, tab2], [val25, val26]):
+        with year:
+            abc = df.groupby(col_desc).agg({val:"sum", val25:"sum", val26:"sum"}).reset_index()
+            abc = abc.sort_values(val, ascending=False)
+
+            abc["cum_share"] = abc[val].cumsum() / abc[val].sum()
+            abc["segment"] = "C"
+            abc.loc[abc["cum_share"] <= 0.7, "segment"] = "A"
+            abc.loc[(abc["cum_share"] > 0.7) & (abc["cum_share"] <= 0.9), "segment"] = "B"
+
+            abc["YoY"] = abc.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
+            abc["YoY %"] = abc["YoY"].apply(yoy_format)
+
+            color_map = create_color_map(abc["segment"])
+            st.plotly_chart(px.pie(abc, names="segment", values=val,
+                                  color="segment", color_discrete_map=color_map))
+
+            st.dataframe(add_index(abc[[col_desc,val25,val26,"segment","YoY %"]]))
 
     st.divider()
 
@@ -233,39 +209,21 @@ if uploaded_file:
     # ================= AUTO INSIGHTS =================
     st.markdown("## 🧠 Auto Insights")
 
-    if selected == "All Categories":
+    cat = df_original.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
+    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
+    cat["YoY %"] = cat["YoY"].apply(yoy_format)
 
-        cat = df_original.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
-        cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
+    st.write("### Top 3 Categories 2025")
+    st.dataframe(add_index(cat.sort_values(val25, ascending=False).head(3)))
 
-        st.write("### Top 3 Categories 2025")
-        st.dataframe(add_index(cat.sort_values(val25, ascending=False).head(3)))
+    st.write("### Top 3 Categories 2026")
+    st.dataframe(add_index(cat.sort_values(val26, ascending=False).head(3)))
 
-        st.write("### Top 3 Categories 2026")
-        st.dataframe(add_index(cat.sort_values(val26, ascending=False).head(3)))
+    st.write("### Growth")
+    st.dataframe(add_index(cat.sort_values("YoY", ascending=False).head(3)))
 
-        st.write("### Growth")
-        st.dataframe(add_index(cat.sort_values("YoY", ascending=False).head(3)))
-
-        st.write("### Risk")
-        st.dataframe(add_index(cat.sort_values("YoY").head(3)))
-
-    else:
-        st.write("### Product Insights")
-
-        top25 = df.sort_values(val25, ascending=False).iloc[0]
-        top26 = df.sort_values(val26, ascending=False).iloc[0]
-
-        st.success(f"Top Product 2025: {top25[col_desc]} (€{top25[val25]:,.0f})")
-        st.success(f"Top Product 2026: {top26[col_desc]} (€{top26[val26]:,.0f})")
-
-        df["YOY"] = df.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
-
-        growth = df.sort_values("YOY", ascending=False).iloc[0]
-        risk = df.sort_values("YOY").iloc[0]
-
-        st.info(f"Growth: {growth[col_desc]} ({growth['YOY']:.0f}%, €{growth[val26]:,.0f})")
-        st.warning(f"Risk: {risk[col_desc]} ({risk['YOY']:.0f}%, €{risk[val26]:,.0f})")
+    st.write("### Risk")
+    st.dataframe(add_index(cat.sort_values("YoY").head(3)))
 
     st.divider()
 
