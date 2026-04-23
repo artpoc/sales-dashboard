@@ -169,7 +169,16 @@ if uploaded_file:
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     brand["YoY %"] = brand["YoY"].apply(yoy_format)
 
-    st.markdown("### Brand Comparison")
+    c1,c2 = st.columns(2)
+
+    with c1:
+        st.markdown("### 2025")
+        st.plotly_chart(px.pie(brand, names=col_brand, values=val25))
+
+    with c2:
+        st.markdown("### 2026")
+        st.plotly_chart(px.pie(brand, names=col_brand, values=val26))
+
     st.dataframe(add_index(
         brand[[col_brand,val25,val26,"YoY %"]]
         .sort_values(val26, ascending=False)
