@@ -48,6 +48,11 @@ def add_index(df):
     df.index = df.index + 1
     return df
 
+def create_color_map(values):
+    unique_vals = sorted(values)
+    colors = px.colors.qualitative.Plotly
+    return {val: colors[i % len(colors)] for i, val in enumerate(unique_vals)}
+
 # ================= MAIN =================
 if uploaded_file:
 
@@ -113,18 +118,22 @@ if uploaded_file:
             val26: "sum"
         }).reset_index()
 
+        color_map_cat = create_color_map(cat_perf["Category Clean"])
+
         c1,c2 = st.columns(2)
 
         with c1:
             st.markdown("### 2025")
             c = add_index(cat_perf.sort_values(val25, ascending=False))
-            st.plotly_chart(px.pie(c, names="Category Clean", values=val25))
+            st.plotly_chart(px.pie(c, names="Category Clean", values=val25,
+                                  color="Category Clean", color_discrete_map=color_map_cat))
             st.dataframe(c[["Category Clean", val25]])
 
         with c2:
             st.markdown("### 2026")
             c = add_index(cat_perf.sort_values(val26, ascending=False))
-            st.plotly_chart(px.pie(c, names="Category Clean", values=val26))
+            st.plotly_chart(px.pie(c, names="Category Clean", values=val26,
+                                  color="Category Clean", color_discrete_map=color_map_cat))
             st.dataframe(c[["Category Clean", val26]])
 
     st.divider()
@@ -133,19 +142,22 @@ if uploaded_file:
     st.markdown("## 🏷️ Brand Performance")
 
     brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
+    color_map_brand = create_color_map(brand[col_brand])
 
     c1,c2 = st.columns(2)
 
     with c1:
         st.markdown("### 2025")
         b = add_index(brand.sort_values(val25, ascending=False))
-        st.plotly_chart(px.pie(b, names=col_brand, values=val25))
+        st.plotly_chart(px.pie(b, names=col_brand, values=val25,
+                              color=col_brand, color_discrete_map=color_map_brand))
         st.dataframe(b[[col_brand,val25]])
 
     with c2:
         st.markdown("### 2026")
         b = add_index(brand.sort_values(val26, ascending=False))
-        st.plotly_chart(px.pie(b, names=col_brand, values=val26))
+        st.plotly_chart(px.pie(b, names=col_brand, values=val26,
+                              color=col_brand, color_discrete_map=color_map_brand))
         st.dataframe(b[[col_brand,val26]])
 
     st.divider()
@@ -165,21 +177,26 @@ if uploaded_file:
 
     st.divider()
 
-    # ================= TOP PRODUCTS IN BRAND =================
-    st.markdown("## 📊 Top Products within Brand")
+    # ================= PRODUCT PERFORMANCE =================
+    st.markdown("## 🎯 Product Performance (Top 10 Concentration)")
 
-    brand_sel = st.selectbox("Select Brand", df[col_brand].unique())
-    dfb = df[df[col_brand] == brand_sel]
+    tab1, tab2 = st.tabs(["2025","2026"])
 
-    c1,c2 = st.columns(2)
+    with tab1:
+        p = add_index(df.sort_values(val25, ascending=False).head(10))
+        color_map_prod = create_color_map(p[col_desc])
+        st.plotly_chart(px.pie(p, names=col_desc, values=val25,
+                              color=col_desc, color_discrete_map=color_map_prod))
+        share = p[val25].sum()/s25*100 if s25 else 0
+        st.write(f"Top10 Share 2025: {share:.0f}%")
 
-    with c1:
-        d = add_index(dfb[dfb[val25]>0].sort_values(val25, ascending=False).head(10))
-        st.dataframe(d[[col_code,col_desc,val25]])
-
-    with c2:
-        d = add_index(dfb[dfb[val26]>0].sort_values(val26, ascending=False).head(10))
-        st.dataframe(d[[col_code,col_desc,val26]])
+    with tab2:
+        p = add_index(df.sort_values(val26, ascending=False).head(10))
+        color_map_prod = create_color_map(p[col_desc])
+        st.plotly_chart(px.pie(p, names=col_desc, values=val26,
+                              color=col_desc, color_discrete_map=color_map_prod))
+        share = p[val26].sum()/s26*100 if s26 else 0
+        st.write(f"Top10 Share 2026: {share:.0f}%")
 
     st.divider()
 
