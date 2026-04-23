@@ -300,7 +300,7 @@ if uploaded_file:
     st.divider()
 
     # ================= YOY =================
-    st.markdown("## 📈 YoY Analysis")
+    st.markdown("## 📈 L4L Analysis")
 
     df_yoy = df.groupby([col_code, col_desc]).agg({
         val25: "sum",
