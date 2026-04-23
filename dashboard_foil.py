@@ -222,9 +222,6 @@ if uploaded_file:
 
             st.write(f"SKU generating 80%: {len(top80)} / {len(p)}")
 
-            fig = px.pie(top80, names=col_desc, values=val, title="Top 80% SKU Share")
-            st.plotly_chart(fig)
-
         st.dataframe(add_index(top80[[col_desc,val25,val26]]))
 
     st.divider()
