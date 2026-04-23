@@ -143,21 +143,17 @@ if uploaded_file:
             val26: "sum"
         }).reset_index()
 
-        with c1:
-        st.markdown("### 2025")
-
-        with c2:
-        st.markdown("### 2026")
-
         cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
         cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
 
         c1,c2 = st.columns(2)
 
         with c1:
+            st.markdown("### 2025")
             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val25))
 
         with c2:
+            st.markdown("### 2026")
             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val26))
 
         st.markdown("### Category Comparison")
