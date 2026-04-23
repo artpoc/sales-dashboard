@@ -241,10 +241,7 @@ if uploaded_file:
             a.loc[a["cum"]<=0.7,"segment"]="A"
             a.loc[(a["cum"]>0.7)&(a["cum"]<=0.9),"segment"]="B"
 
-            a["YoY"] = a.apply(lambda x: calc_yoy(x[val26],x[val25]), axis=1)
-            a["YoY %"] = a["YoY"].apply(yoy_format)
-
-            st.dataframe(add_index(a[[col_desc,val25,val26,"segment","YoY %"]]))
+            st.dataframe(add_index(a[[col_desc,val25,val26,"segment"]]))
 
     st.divider()
 
