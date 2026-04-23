@@ -10,10 +10,7 @@ uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 # ================= HELPERS =================
 def calc_yoy(new, old):
     if pd.isna(old) or old == 0:
-        if new > 0:
-            return 100
-        else:
-            return 0
+        return 100 if new > 0 else 0
     elif (old > 0) and (pd.isna(new) or new == 0):
         return -100
     else:
@@ -26,31 +23,6 @@ def yoy_format(v):
         return f"{v:.0f}% 🔴"
     else:
         return "0%"
-
-# 🔥 KLUCZOWA FUNKCJA
-def clean_number(x):
-    if pd.isna(x):
-        return 0
-
-    x = str(x).strip().replace(" ", "")
-
-    # jeśli są oba separatory
-    if "," in x and "." in x:
-        if x.find(",") > x.find("."):
-            # EU: 1.234,56
-            x = x.replace(".", "").replace(",", ".")
-        else:
-            # US: 1,234.56
-            x = x.replace(",", "")
-    else:
-        # tylko przecinek → dziesiętny
-        if "," in x:
-            x = x.replace(",", ".")
-
-    try:
-        return float(x)
-    except:
-        return 0
 
 def normalize_category(x):
     x = str(x).lower()
@@ -82,7 +54,8 @@ def add_index(df):
 # ================= MAIN =================
 if uploaded_file:
 
-    df = pd.read_excel(uploaded_file)
+    # 🔥 KLUCZOWY FIX
+    df = pd.read_excel(uploaded_file, decimal=",", thousands=" ")
     df.columns = df.columns.str.strip()
 
     col_customer = "Customer Name"
@@ -98,9 +71,9 @@ if uploaded_file:
     qty25 = "Quantity 2025"
     qty26 = "Quantity 2026"
 
-    # 🔥 POPRAWIONE CZYSZCZENIE
+    # ✅ BEZPIECZNA KONWERSJA
     for c in [val25, val26, qty25, qty26]:
-        df[c] = df[c].apply(clean_number)
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
     # ================= CATEGORY FILTER =================
     ALLOWED_CATEGORIES = [
@@ -112,11 +85,12 @@ if uploaded_file:
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
 
+    # 🔥 ZAPIS PEŁNYCH DANYCH
+    df_original_all = df.copy()
+
     # ================= CUSTOMER FILTER =================
     customers = ["All Customers"] + sorted(df[col_customer].dropna().unique())
     selected_customer = st.selectbox("👤 Select Customer", customers)
-
-    df_original_all = df.copy()  # 🔥 ważne
 
     if selected_customer != "All Customers":
         df = df[df[col_customer] == selected_customer]
@@ -137,7 +111,8 @@ if uploaded_file:
     categories = ["All Categories"] + sorted(df["Category Clean"].unique())
     selected = st.selectbox("📂 Select Category", categories)
 
-    df_original = df.copy()
+    # 🔥 KLUCZOWE – zawsze pełne dane
+    df_original = df_original_all.copy()
 
     if selected != "All Categories":
         df = df[df["Category Clean"] == selected]
@@ -239,6 +214,25 @@ if uploaded_file:
 
     st.divider()
 
+    # ================= ABC =================
+    st.markdown("## 📊 ABC Analysis")
+
+    tab1, tab2 = st.tabs(["2025","2026"])
+
+    for year, val in zip([tab1, tab2], [val25, val26]):
+        with year:
+            a = df.groupby(col_desc).agg({val25:"sum",val26:"sum"}).reset_index()
+            a = a.sort_values(val, ascending=False)
+            a["cum"] = a[val].cumsum()/a[val].sum()
+
+            a["segment"] = "C"
+            a.loc[a["cum"]<=0.7,"segment"]="A"
+            a.loc[(a["cum"]>0.7)&(a["cum"]<=0.9),"segment"]="B"
+
+            st.dataframe(add_index(a[[col_desc,val25,val26,"segment"]]))
+
+    st.divider()
+
     # ================= YOY =================
     st.markdown("## 📈 YoY Analysis")
 
@@ -250,3 +244,20 @@ if uploaded_file:
         df_yoy.sort_values(val26, ascending=False)
         [[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]]
     ))
+
+    st.divider()
+
+    # ================= CLIENT SCORE =================
+    st.markdown("## 🎯 Client Score")
+
+    yoy_total = calc_yoy(s26,s25)
+    qty_diff = q26 - q25
+
+    st.info(f"2026 Sales: €{s26:,.2f} | Qty: {q26:,.0f} (Δ {qty_diff:+,.0f} vs 2025)")
+
+    if yoy_total > 20:
+        st.success(f"A 🔥 | Growth: +{yoy_total:.0f}%")
+    elif yoy_total > 0:
+        st.info(f"B 👍 | Growth: +{yoy_total:.0f}%")
+    else:
+        st.error(f"C ⚠️ | Growth: {yoy_total:.0f}%")
