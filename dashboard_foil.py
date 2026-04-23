@@ -21,9 +21,9 @@ def calc_yoy(new, old):
 
 def yoy_format(v):
     if v > 0:
-        return f"+{v:.0f}% 🟢 ↑"
+        return f"+{v:.0f}% 🟢"
     elif v < 0:
-        return f"{v:.0f}% 🔴 ↓"
+        return f"{v:.0f}% 🔴"
     else:
         return "0%"
 
@@ -37,7 +37,6 @@ def normalize_category(x):
     if "plate" in x: return "Plates"
     if "paper cup" in x: return "Paper Cups"
     if "plastic cup" in x: return "Plastic Cups"
-    if "cup" in x: return "Cups"
     if "tablecover" in x: return "Tablecover"
     if "reusable" in x: return "Reusable"
     if "foil" in x: return "Foil"
@@ -74,11 +73,15 @@ if uploaded_file:
     qty25 = "Quantity 2025"
     qty26 = "Quantity 2026"
 
-    # ===== numeric safety =====
-    df[val25] = pd.to_numeric(df[val25], errors="coerce").fillna(0)
-    df[val26] = pd.to_numeric(df[val26], errors="coerce").fillna(0)
-    df[qty25] = pd.to_numeric(df[qty25], errors="coerce").fillna(0)
-    df[qty26] = pd.to_numeric(df[qty26], errors="coerce").fillna(0)
+    # ===== numeric fix (KLUCZOWE) =====
+    for c in [val25, val26, qty25, qty26]:
+        df[c] = (
+            df[c]
+            .astype(str)
+            .str.replace(" ", "")
+            .str.replace(",", ".")
+        )
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
     # ================= CATEGORY FILTER =================
     ALLOWED_CATEGORIES = [
@@ -141,6 +144,7 @@ if uploaded_file:
         }).reset_index()
 
         cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
+        cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
 
         c1,c2 = st.columns(2)
 
@@ -152,10 +156,7 @@ if uploaded_file:
             st.markdown("### 2026")
             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val26))
 
-        # NOWY wykres porównawczy
         st.markdown("### Category Comparison")
-        cat_perf["YoY %"] = cat_perf["YoY"].apply(lambda x: f"{x:.0f}%")
-
         st.dataframe(add_index(
             cat_perf[["Category Clean", val25, val26, "YoY %"]]
             .sort_values(val26, ascending=False)
@@ -168,21 +169,8 @@ if uploaded_file:
 
     brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
-    brand["YoY %"] = brand["YoY"].apply(lambda x: f"{x:.0f}%")
+    brand["YoY %"] = brand["YoY"].apply(yoy_format)
 
-    c1,c2 = st.columns(2)
-
-    with c1:
-        b = add_index(brand.sort_values(val25, ascending=False))
-        st.plotly_chart(px.pie(b, names=col_brand, values=val25))
-        st.dataframe(b[[col_brand,val25,"YoY %"]])
-
-    with c2:
-        b = add_index(brand.sort_values(val26, ascending=False))
-        st.plotly_chart(px.pie(b, names=col_brand, values=val26))
-        st.dataframe(b[[col_brand,val26,"YoY %"]])
-
-    # DODANA tabela porównawcza
     st.markdown("### Brand Comparison")
     st.dataframe(add_index(
         brand[[col_brand,val25,val26,"YoY %"]]
@@ -198,27 +186,11 @@ if uploaded_file:
 
     with c1:
         d = df.sort_values(val25, ascending=False).head(10)
-        d_idx = add_index(d)
-
-        st.dataframe(d_idx[[col_code,col_desc,val25,qty25]])
-
-        fig = px.pie(d, names=col_desc, values=val25, title="Top 10 Share 2025")
-        st.plotly_chart(fig)
-
-        share = d[val25].sum() / s25 * 100 if s25 else 0
-        st.write(f"Top 10 Share 2025: {share:.1f}%")
+        st.dataframe(add_index(d[[col_code,col_desc,val25,qty25]]))
 
     with c2:
         d = df.sort_values(val26, ascending=False).head(10)
-        d_idx = add_index(d)
-
-        st.dataframe(d_idx[[col_code,col_desc,val26,qty26]])
-
-        fig = px.pie(d, names=col_desc, values=val26, title="Top 10 Share 2026")
-        st.plotly_chart(fig)
-
-        share = d[val26].sum() / s26 * 100 if s26 else 0
-        st.write(f"Top 10 Share 2026: {share:.1f}%")
+        st.dataframe(add_index(d[[col_code,col_desc,val26,qty26]]))
 
     st.divider()
 
@@ -240,11 +212,6 @@ if uploaded_file:
             top80 = p[p["cum"] <= 0.8]
 
             st.write(f"Top SKU for 80%: {len(top80)} / {len(p)}")
-
-            fig = px.bar(p, x=col_desc, y=val, color="Category Clean")
-            fig.add_scatter(x=p[col_desc], y=p["cum"], mode="lines+markers", name="Cumulative %")
-            st.plotly_chart(fig)
-
             st.dataframe(add_index(top80[[col_desc,"Category Clean",val25,val26]]))
 
     st.divider()
@@ -280,30 +247,10 @@ if uploaded_file:
     df_yoy["YoY raw"] = df_yoy.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     df_yoy["YoY %"] = df_yoy["YoY raw"].apply(yoy_format)
 
-    df_yoy = add_index(df_yoy.sort_values(val26, ascending=False))
-
-    st.dataframe(df_yoy[[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]])
-
-    st.divider()
-
-    # ================= AUTO INSIGHTS =================
-    st.markdown("## 🧠 Auto Insights")
-
-    cat = df_original.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
-    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
-    cat["YoY %"] = cat["YoY"].apply(yoy_format)
-
-    st.write("### Top 3 Categories 2025")
-    st.dataframe(add_index(cat.sort_values(val25, ascending=False).head(3)))
-
-    st.write("### Top 3 Categories 2026")
-    st.dataframe(add_index(cat.sort_values(val26, ascending=False).head(3)))
-
-    st.write("### Growth")
-    st.dataframe(add_index(cat.sort_values("YoY", ascending=False).head(3)))
-
-    st.write("### Risk")
-    st.dataframe(add_index(cat.sort_values("YoY").head(3)))
+    st.dataframe(add_index(
+        df_yoy.sort_values(val26, ascending=False)
+        [[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]]
+    ))
 
     st.divider()
 
