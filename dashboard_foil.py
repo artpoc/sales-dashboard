@@ -19,8 +19,12 @@ def calc_yoy(new, old):
         return (new - old) / old * 100
 
 def yoy_format(v):
-    arrow = "🟢 ↑" if v > 0 else "🔴 ↓"
-    return f"{v:.0f}% {arrow}"
+    if v > 0:
+        return f"+{v:.0f}% 🟢 ↑"
+    elif v < 0:
+        return f"{v:.0f}% 🔴 ↓"
+    else:
+        return "0%"
 
 def normalize_category(x):
     x = str(x).lower()
@@ -70,8 +74,6 @@ if uploaded_file:
     c2.write(f"**Country:** {df[col_country].iloc[0]}")
     c3.write(f"**VAT:** {df[col_vat].iloc[0]}")
 
-    st.divider()
-
     # ================= CATEGORY =================
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
 
@@ -94,9 +96,9 @@ if uploaded_file:
 
     k1,k2,k3,k4 = st.columns(4)
     k1.metric("Sales 2025 (€)", f"{s25:,.0f}")
-    k2.metric("Sales 2026 (€)", f"{s26:,.0f}", f"{calc_yoy(s26,s25):.0f}%")
+    k2.metric("Sales 2026 (€)", f"{s26:,.0f}", f"{calc_yoy(s26,s25):+.0f}%")
     k3.metric("Qty 2025", f"{q25:,.0f}")
-    k4.metric("Qty 2026", f"{q26:,.0f}", f"{calc_yoy(q26,q25):.0f}%")
+    k4.metric("Qty 2026", f"{q26:,.0f}", f"{calc_yoy(q26,q25):+.0f}%")
 
     st.divider()
 
@@ -173,15 +175,13 @@ if uploaded_file:
     tab1, tab2 = st.tabs(["2025","2026"])
 
     with tab1:
-        p = df.sort_values(val25, ascending=False).head(10)
-        p = add_index(p)
+        p = add_index(df.sort_values(val25, ascending=False).head(10))
         st.plotly_chart(px.pie(p, names=col_desc, values=val25))
         share = p[val25].sum()/s25*100 if s25 else 0
         st.write(f"Top10 Share 2025: {share:.0f}%")
 
     with tab2:
-        p = df.sort_values(val26, ascending=False).head(10)
-        p = add_index(p)
+        p = add_index(df.sort_values(val26, ascending=False).head(10))
         st.plotly_chart(px.pie(p, names=col_desc, values=val26))
         share = p[val26].sum()/s26*100 if s26 else 0
         st.write(f"Top10 Share 2026: {share:.0f}%")
@@ -191,42 +191,81 @@ if uploaded_file:
     # ================= AUTO INSIGHTS =================
     st.markdown("## 🧠 Auto Insights")
 
+    tab1, tab2 = st.tabs(["2025","2026"])
+
     cat = df.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
+
+    with tab1:
+        top = cat.sort_values(val25, ascending=False).iloc[0]
+        st.success(f"Top Category 2025: {top['Category Clean']} (€{top[val25]:,.0f})")
+
+    with tab2:
+        top = cat.sort_values(val26, ascending=False).iloc[0]
+        st.success(f"Top Category 2026: {top['Category Clean']} (€{top[val26]:,.0f})")
+
     cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
-    st.success(f"Top Growth Category: {cat.sort_values('YoY',ascending=False).iloc[0]['Category Clean']}")
-    st.error(f"Risk Category: {cat.sort_values('YoY').iloc[0]['Category Clean']}")
+    st.info(f"Growth Category: {cat.sort_values('YoY',ascending=False).iloc[0]['Category Clean']}")
+    st.warning(f"Risk Category: {cat.sort_values('YoY').iloc[0]['Category Clean']}")
 
     st.divider()
 
     # ================= BRAND INSIGHTS =================
     st.markdown("## 🏷️ Brand Insights")
 
+    tab1, tab2 = st.tabs(["2025","2026"])
+
+    with tab1:
+        top = brand.sort_values(val25, ascending=False).iloc[0]
+        st.success(f"Top Brand 2025: {top[col_brand]} (€{top[val25]:,.0f})")
+
+    with tab2:
+        top = brand.sort_values(val26, ascending=False).iloc[0]
+        st.success(f"Top Brand 2026: {top[col_brand]} (€{top[val26]:,.0f})")
+
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
-    st.success(f"Top Growth Brand: {brand.sort_values('YoY',ascending=False).iloc[0][col_brand]}")
-    st.error(f"Declining Brand: {brand.sort_values('YoY').iloc[0][col_brand]}")
+    st.info(f"Growth Brand: {brand.sort_values('YoY',ascending=False).iloc[0][col_brand]}")
+    st.warning(f"Risk Brand: {brand.sort_values('YoY').iloc[0][col_brand]}")
 
     st.divider()
 
     # ================= SKU INSIGHTS =================
     st.markdown("## 📦 SKU Insights")
 
+    tab1, tab2 = st.tabs(["2025","2026"])
+
+    with tab1:
+        top = df.sort_values(val25, ascending=False).iloc[0]
+        st.success(f"Top SKU 2025: {top[col_desc]} (€{top[val25]:,.0f})")
+
+    with tab2:
+        top = df.sort_values(val26, ascending=False).iloc[0]
+        st.success(f"Top SKU 2026: {top[col_desc]} (€{top[val26]:,.0f})")
+
     df["YoY raw"] = df.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
-    st.success(f"Top SKU: {df.sort_values('YoY raw',ascending=False).iloc[0][col_desc]}")
-    st.error(f"Risk SKU: {df.sort_values('YoY raw').iloc[0][col_desc]}")
+    st.info(f"Growth SKU: {df.sort_values('YoY raw',ascending=False).iloc[0][col_desc]}")
+    st.warning(f"Risk SKU: {df.sort_values('YoY raw').iloc[0][col_desc]}")
 
     st.divider()
 
     # ================= CLIENT SCORE =================
     st.markdown("## 🎯 Client Score")
 
+    tab1, tab2 = st.tabs(["2025","2026"])
+
+    with tab1:
+        st.info(f"Sales: €{s25:,.0f} | Qty: {q25:,.0f}")
+
+    with tab2:
+        st.info(f"Sales: €{s26:,.0f} | Qty: {q26:,.0f}")
+
     yoy_total = calc_yoy(s26,s25)
 
     if yoy_total > 20:
-        st.success(f"A 🔥 | Growth: {yoy_total:.0f}% | Strong expansion")
+        st.success(f"A 🔥 | Growth: +{yoy_total:.0f}%")
     elif yoy_total > 0:
-        st.info(f"B 👍 | Growth: {yoy_total:.0f}% | Stable growth")
+        st.info(f"B 👍 | Growth: +{yoy_total:.0f}%")
     else:
-        st.error(f"C ⚠️ | Growth: {yoy_total:.0f}% | Decline risk")
+        st.error(f"C ⚠️ | Growth: {yoy_total:.0f}%")
