@@ -34,13 +34,24 @@ def normalize_category(x):
     if "bag" in x: return "Bags"
     if "invitation" in x: return "Invitations"
     if "latex" in x: return "Latex"
+    if "straw" in x: return "Straws"
+    if "reusable" in x: return "Reusable"
     return "Other"
+
+def add_index(df):
+    df = df.reset_index(drop=True)
+    df.index = df.index + 1
+    return df
 
 if uploaded_file:
 
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
+    # ================= COLUMNS =================
+    col_customer = "Customer Name"
+    col_country = "Country"
+    col_vat = "Vat ID Nr."
     col_code = "Art. Nr."
     col_desc = "Article description"
     col_brand = "Brand Name"
@@ -51,11 +62,21 @@ if uploaded_file:
     qty25 = "Quantity 2025"
     qty26 = "Quantity 2026"
 
+    # ================= CUSTOMER =================
+    st.subheader("👤 Customer Information")
+
+    c1, c2, c3 = st.columns(3)
+    c1.write(f"**Customer:** {df[col_customer].iloc[0]}")
+    c2.write(f"**Country:** {df[col_country].iloc[0]}")
+    c3.write(f"**VAT:** {df[col_vat].iloc[0]}")
+
+    st.divider()
+
     # ================= CATEGORY =================
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
 
     categories = ["All Categories"] + sorted(df["Category Clean"].unique())
-    selected = st.selectbox("📂 Category", categories)
+    selected = st.selectbox("📂 Select Category", categories)
 
     if selected != "All Categories":
         df = df[df["Category Clean"] == selected]
@@ -63,15 +84,17 @@ if uploaded_file:
     df = df[df[col_desc].notna()]
     df = df[df[col_desc].str.lower() != "none"]
 
+    st.divider()
+
     # ================= KPI =================
-    st.markdown("## 💰 KPI")
+    st.markdown("## 💰 KPI (EUR / PCS)")
 
     s25, s26 = df[val25].sum(), df[val26].sum()
     q25, q26 = df[qty25].sum(), df[qty26].sum()
 
     k1,k2,k3,k4 = st.columns(4)
-    k1.metric("Sales 2025 €", f"{s25:,.0f}")
-    k2.metric("Sales 2026 €", f"{s26:,.0f}", f"{calc_yoy(s26,s25):.0f}%")
+    k1.metric("Sales 2025 (€)", f"{s25:,.0f}")
+    k2.metric("Sales 2026 (€)", f"{s26:,.0f}", f"{calc_yoy(s26,s25):.0f}%")
     k3.metric("Qty 2025", f"{q25:,.0f}")
     k4.metric("Qty 2026", f"{q26:,.0f}", f"{calc_yoy(q26,q25):.0f}%")
 
@@ -83,10 +106,18 @@ if uploaded_file:
     brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
 
     c1,c2 = st.columns(2)
-    c1.plotly_chart(px.pie(brand, names=col_brand, values=val25))
-    c2.plotly_chart(px.pie(brand, names=col_brand, values=val26))
 
-    st.dataframe(brand.sort_values(val26, ascending=False))
+    with c1:
+        st.markdown("### 2025")
+        b = add_index(brand.sort_values(val25, ascending=False))
+        st.plotly_chart(px.pie(b, names=col_brand, values=val25))
+        st.dataframe(b[[col_brand,val25]])
+
+    with c2:
+        st.markdown("### 2026")
+        b = add_index(brand.sort_values(val26, ascending=False))
+        st.plotly_chart(px.pie(b, names=col_brand, values=val26))
+        st.dataframe(b[[col_brand,val26]])
 
     st.divider()
 
@@ -94,57 +125,77 @@ if uploaded_file:
     st.markdown("## 🏆 Top Products")
 
     c1,c2 = st.columns(2)
-    c1.dataframe(df[df[val25]>0].sort_values(val25,ascending=False).head(10))
-    c2.dataframe(df[df[val26]>0].sort_values(val26,ascending=False).head(10))
+
+    with c1:
+        d = add_index(df[df[val25]>0].sort_values(val25, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val25,qty25]])
+
+    with c2:
+        d = add_index(df[df[val26]>0].sort_values(val26, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val26,qty26]])
 
     st.divider()
 
-    # ================= YOY =================
-    st.markdown("## 📈 YoY Analysis")
+    # ================= TOP PRODUCTS IN BRAND =================
+    st.markdown("## 📊 Top Products within Brand")
 
-    df["YoY %"] = df.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
-    df["YoY %"] = df["YoY %"].apply(yoy_format)
-
-    st.dataframe(df.sort_values(val26, ascending=False))
-
-    st.divider()
-
-    # ================= PORTFOLIO =================
-    st.markdown("## 🎯 Portfolio")
-
-    top10 = df.sort_values(val26, ascending=False).head(10)
-    share = top10[val26].sum()/s26*100 if s26 else 0
-
-    st.plotly_chart(px.pie(top10, names=col_desc, values=val26))
-    st.markdown(f"Top10 Concentration: {share:.0f}%")
-
-    if share > 50:
-        st.success("High concentration")
-    else:
-        st.warning("Low concentration")
-
-    st.divider()
-
-    # ================= AUTO INSIGHTS =================
-    st.markdown("## 🧠 AUTO INSIGHTS")
-
-    cat = df.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
-    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
-
-    growth = cat.sort_values("YoY",ascending=False).head(3)
-    decline = cat.sort_values("YoY").head(3)
+    brand_sel = st.selectbox("Select Brand", df[col_brand].unique())
+    dfb = df[df[col_brand] == brand_sel]
 
     c1,c2 = st.columns(2)
 
     with c1:
-        st.markdown("### 🚀 Growth")
-        for _,r in growth.iterrows():
-            st.success(f"{r['Category Clean']} +{r['YoY']:.0f}%")
+        d = add_index(dfb[dfb[val25]>0].sort_values(val25, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val25]])
 
     with c2:
-        st.markdown("### ⚠️ Decline")
-        for _,r in decline.iterrows():
-            st.error(f"{r['Category Clean']} {r['YoY']:.0f}%")
+        d = add_index(dfb[dfb[val26]>0].sort_values(val26, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val26]])
+
+    st.divider()
+
+    # ================= YOY =================
+    st.markdown("## 📈 YoY Analysis (2026 vs 2025)")
+
+    df_yoy = df.copy()
+    df_yoy["YoY %"] = df_yoy.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
+    df_yoy["YoY %"] = df_yoy["YoY %"].apply(yoy_format)
+
+    df_yoy = add_index(df_yoy.sort_values(val26, ascending=False))
+
+    st.dataframe(df_yoy[[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]])
+
+    st.divider()
+
+    # ================= PORTFOLIO =================
+    st.markdown("## 🎯 Portfolio Optimization")
+
+    tab1, tab2 = st.tabs(["2025","2026"])
+
+    with tab1:
+        p = df.sort_values(val25, ascending=False).head(10)
+        p = add_index(p)
+        st.plotly_chart(px.pie(p, names=col_desc, values=val25))
+        share = p[val25].sum()/s25*100 if s25 else 0
+        st.write(f"Top10 Share 2025: {share:.0f}%")
+
+    with tab2:
+        p = df.sort_values(val26, ascending=False).head(10)
+        p = add_index(p)
+        st.plotly_chart(px.pie(p, names=col_desc, values=val26))
+        share = p[val26].sum()/s26*100 if s26 else 0
+        st.write(f"Top10 Share 2026: {share:.0f}%")
+
+    st.divider()
+
+    # ================= AUTO INSIGHTS =================
+    st.markdown("## 🧠 Auto Insights")
+
+    cat = df.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
+    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
+
+    st.success(f"Top Growth Category: {cat.sort_values('YoY',ascending=False).iloc[0]['Category Clean']}")
+    st.error(f"Risk Category: {cat.sort_values('YoY').iloc[0]['Category Clean']}")
 
     st.divider()
 
@@ -154,7 +205,7 @@ if uploaded_file:
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
     st.success(f"Top Growth Brand: {brand.sort_values('YoY',ascending=False).iloc[0][col_brand]}")
-    st.error(f"Risk Brand: {brand.sort_values('YoY').iloc[0][col_brand]}")
+    st.error(f"Declining Brand: {brand.sort_values('YoY').iloc[0][col_brand]}")
 
     st.divider()
 
@@ -163,13 +214,19 @@ if uploaded_file:
 
     df["YoY raw"] = df.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
-    st.success(f"Best SKU: {df.sort_values('YoY raw',ascending=False).iloc[0][col_desc]}")
-    st.error(f"Worst SKU: {df.sort_values('YoY raw').iloc[0][col_desc]}")
+    st.success(f"Top SKU: {df.sort_values('YoY raw',ascending=False).iloc[0][col_desc]}")
+    st.error(f"Risk SKU: {df.sort_values('YoY raw').iloc[0][col_desc]}")
 
     st.divider()
 
     # ================= CLIENT SCORE =================
     st.markdown("## 🎯 Client Score")
 
-    score = "A 🔥" if calc_yoy(s26,s25)>20 else "B 👍" if calc_yoy(s26,s25)>0 else "C ⚠️"
-    st.markdown(f"### {score}")
+    yoy_total = calc_yoy(s26,s25)
+
+    if yoy_total > 20:
+        st.success(f"A 🔥 | Growth: {yoy_total:.0f}% | Strong expansion")
+    elif yoy_total > 0:
+        st.info(f"B 👍 | Growth: {yoy_total:.0f}% | Stable growth")
+    else:
+        st.error(f"C ⚠️ | Growth: {yoy_total:.0f}% | Decline risk")
