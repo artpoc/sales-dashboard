@@ -183,12 +183,28 @@ if uploaded_file:
     c1,c2 = st.columns(2)
 
     with c1:
+        st.markdown("### 2025")
         d = df.sort_values(val25, ascending=False).head(10)
         st.dataframe(add_index(d[[col_code,col_desc,val25,qty25]]))
 
+        rest = s25 - d[val25].sum()
+        fig = px.pie(
+            names=["Top 10","Others"],
+            values=[d[val25].sum(), rest]
+        )
+        st.plotly_chart(fig)
+
     with c2:
+        st.markdown("### 2026")
         d = df.sort_values(val26, ascending=False).head(10)
         st.dataframe(add_index(d[[col_code,col_desc,val26,qty26]]))
+
+        rest = s26 - d[val26].sum()
+        fig = px.pie(
+            names=["Top 10","Others"],
+            values=[d[val26].sum(), rest]
+        )
+        st.plotly_chart(fig)
 
     st.divider()
 
