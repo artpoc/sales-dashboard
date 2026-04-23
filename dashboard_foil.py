@@ -175,28 +175,12 @@ if uploaded_file:
     c1,c2 = st.columns(2)
 
     with c1:
-    d = df.sort_values(val25, ascending=False).head(10)
-    d_idx = add_index(d)
-
-    st.dataframe(d_idx[[col_code,col_desc,val25,qty25]])
-
-    fig = px.pie(d, names=col_desc, values=val25, title="Top 10 Share 2025")
-    st.plotly_chart(fig)
-
-    share = d[val25].sum() / s25 * 100 if s25 else 0
-    st.write(f"Top 10 Share 2025: {share:.1f}%")
+        d = add_index(df.sort_values(val25, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val25,qty25]])
 
     with c2:
-    d = df.sort_values(val26, ascending=False).head(10)
-    d_idx = add_index(d)
-
-    st.dataframe(d_idx[[col_code,col_desc,val26,qty26]])
-
-    fig = px.pie(d, names=col_desc, values=val26, title="Top 10 Share 2026")
-    st.plotly_chart(fig)
-
-    share = d[val26].sum() / s26 * 100 if s26 else 0
-    st.write(f"Top 10 Share 2026: {share:.1f}%")
+        d = add_index(df.sort_values(val26, ascending=False).head(10))
+        st.dataframe(d[[col_code,col_desc,val26,qty26]])
 
     st.divider()
 
@@ -207,25 +191,20 @@ if uploaded_file:
 
     st.divider()
 
-# ================= PARETO =================
-st.markdown("## 📊 Pareto Analysis")
+    # ================= PARETO =================
+    st.markdown("## 📊 Pareto Analysis")
 
-tab1, tab2 = st.tabs(["2025","2026"])
+    tab1, tab2 = st.tabs(["2025","2026"])
 
-for year, val in zip([tab1, tab2], [val25, val26]):
-    with year:
-        p = df.groupby(col_desc).agg({val25:"sum",val26:"sum"}).reset_index()
-        p = p.sort_values(val, ascending=False)
-        p["cum"] = p[val].cumsum()/p[val].sum()
+    for year, val in zip([tab1, tab2], [val25, val26]):
+        with year:
+            p = df.groupby(col_desc).agg({val25:"sum",val26:"sum"}).reset_index()
+            p = p.sort_values(val, ascending=False)
+            p["cum"] = p[val].cumsum()/p[val].sum()
+            p["YoY"] = p.apply(lambda x: calc_yoy(x[val26],x[val25]), axis=1)
+            p["YoY %"] = p["YoY"].apply(yoy_format)
 
-        top80 = p[p["cum"] <= 0.8]
-
-        st.write(f"SKU generating 80%: {len(top80)} / {len(p)}")
-
-        fig = px.pie(top80, names=col_desc, values=val, title="Top 80% SKU Share")
-        st.plotly_chart(fig)
-
-        st.dataframe(add_index(top80[[col_desc,val25,val26]]))
+            st.dataframe(add_index(p[[col_desc,val25,val26,"YoY %"]]))
 
     st.divider()
 
