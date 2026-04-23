@@ -10,22 +10,17 @@ uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 # ================= HELPERS =================
 def calc_yoy(new, old):
     if pd.isna(old) or old == 0:
-        if new > 0:
-            return 100
-        else:
-            return 0
-    elif (old > 0) and (pd.isna(new) or new == 0):
+        return 100 if new > 0 else 0
+    elif old > 0 and (pd.isna(new) or new == 0):
         return -100
-    else:
-        return (new - old) / old * 100
+    return (new - old) / old * 100
 
 def yoy_format(v):
     if v > 0:
         return f"+{v:.0f}% 🟢"
     elif v < 0:
         return f"{v:.0f}% 🔴"
-    else:
-        return "0%"
+    return "0%"
 
 def normalize_category(x):
     x = str(x).lower()
@@ -73,7 +68,7 @@ if uploaded_file:
     qty25 = "Quantity 2025"
     qty26 = "Quantity 2026"
 
-    # ===== numeric fix (KLUCZOWE) =====
+    # ===== NUMERIC FIX (KLUCZ DO BŁĘDU SUMY) =====
     for c in [val25, val26, qty25, qty26]:
         df[c] = (
             df[c]
@@ -83,30 +78,35 @@ if uploaded_file:
         )
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-    # ================= CATEGORY FILTER =================
-    ALLOWED_CATEGORIES = [
-        "Napkins","Hats","Banner","Straws","Bags","Plates","Paper Cups",
-        "Tablecover","Reusable","Foil","Wooden","Candles","Latex",
-        "Invitations","Articles","Masks","Pinata","Plastic Cups"
-    ]
-
+    # ================= CATEGORY CLEAN =================
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
-    df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
+
+    # MASTER DF
+    df_all = df.copy()
 
     # ================= CUSTOMER FILTER =================
-    customers = ["All Customers"] + sorted(df[col_customer].dropna().unique())
+    customers = ["All Customers"] + sorted(df_all[col_customer].dropna().unique())
     selected_customer = st.selectbox("👤 Select Customer", customers)
 
     if selected_customer != "All Customers":
-        df = df[df[col_customer] == selected_customer]
+        df = df_all[df_all[col_customer] == selected_customer]
+    else:
+        df = df_all.copy()
 
     # ================= CUSTOMER INFO =================
     st.subheader("👤 Customer Information")
 
     c1, c2, c3 = st.columns(3)
-    c1.write(f"**Customer:** {df[col_customer].iloc[0]}")
-    c2.write(f"**Country:** {df[col_country].iloc[0]}")
-    c3.write(f"**VAT:** {df[col_vat].iloc[0]}")
+
+    if selected_customer == "All Customers":
+        c1.write("**Customer:** All Customers")
+        c2.write(f"**Countries:** {df[col_country].nunique()}")
+        c3.write(f"**VATs:** {df[col_vat].nunique()}")
+    else:
+        if not df.empty:
+            c1.write(f"**Customer:** {df[col_customer].iloc[0]}")
+            c2.write(f"**Country:** {df[col_country].iloc[0]}")
+            c3.write(f"**VAT:** {df[col_vat].iloc[0]}")
 
     # ================= CATEGORY =================
     categories = ["All Categories"] + sorted(df["Category Clean"].unique())
@@ -130,9 +130,9 @@ if uploaded_file:
 
     k1,k2,k3,k4 = st.columns(4)
     k1.metric("Sales 2025 (€)", f"{s25:,.0f}")
-    k2.metric("Sales 2026 (€)", f"{s26:,.0f}", f"{calc_yoy(s26,s25):+.0f}%")
+    k2.metric("Sales 2026 (€)", f"{s26:,.0f}", yoy_format(calc_yoy(s26,s25)))
     k3.metric("Qty 2025", f"{q25:,.0f}")
-    k4.metric("Qty 2026", f"{q26:,.0f}", f"{calc_yoy(q26,q25):+.0f}%")
+    k4.metric("Qty 2026", f"{q26:,.0f}", yoy_format(calc_yoy(q26,q25)))
 
     # ================= CATEGORY PERFORMANCE =================
     if selected == "All Categories":
@@ -171,7 +171,7 @@ if uploaded_file:
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     brand["YoY %"] = brand["YoY"].apply(yoy_format)
 
-    st.markdown("### Brand Comparison")
+    st.markdown("### Brand Comparison (2025 vs 2026)")
     st.dataframe(add_index(
         brand[[col_brand,val25,val26,"YoY %"]]
         .sort_values(val26, ascending=False)
@@ -188,9 +188,15 @@ if uploaded_file:
         d = df.sort_values(val25, ascending=False).head(10)
         st.dataframe(add_index(d[[col_code,col_desc,val25,qty25]]))
 
+        fig = px.pie(d, names=col_desc, values=val25)
+        st.plotly_chart(fig)
+
     with c2:
         d = df.sort_values(val26, ascending=False).head(10)
         st.dataframe(add_index(d[[col_code,col_desc,val26,qty26]]))
+
+        fig = px.pie(d, names=col_desc, values=val26)
+        st.plotly_chart(fig)
 
     st.divider()
 
@@ -232,11 +238,6 @@ if uploaded_file:
             a.loc[(a["cum"]>0.7)&(a["cum"]<=0.9),"segment"]="B"
 
             st.dataframe(add_index(a[[col_desc,val25,val26,"segment"]]))
-
-            counts = a["segment"].value_counts()
-            st.write(f"A (70%): {counts.get('A',0)} produktów")
-            st.write(f"B (20%): {counts.get('B',0)} produktów")
-            st.write(f"C (10%): {counts.get('C',0)} produktów")
 
     st.divider()
 
