@@ -49,6 +49,27 @@ def add_index(df):
     df.index = df.index + 1
     return df
 
+# ===== KLUCZOWA POPRAWKA =====
+def parse_number(x):
+    if pd.isna(x):
+        return 0
+
+    x = str(x).strip()
+    x = x.replace(" ", "")
+
+    if "," in x and "." in x:
+        if x.find(",") > x.find("."):
+            x = x.replace(".", "").replace(",", ".")
+        else:
+            x = x.replace(",", "")
+    elif "," in x:
+        x = x.replace(",", ".")
+
+    try:
+        return float(x)
+    except:
+        return 0
+
 # ================= MAIN =================
 if uploaded_file:
 
@@ -68,23 +89,15 @@ if uploaded_file:
     qty25 = "Quantity 2025"
     qty26 = "Quantity 2026"
 
-    # ===== NUMERIC FIX (KLUCZ DO BŁĘDU SUMY) =====
+    # ===== NUMERIC FIX =====
     for c in [val25, val26, qty25, qty26]:
-        df[c] = (
-            df[c]
-            .astype(str)
-            .str.replace(" ", "")
-            .str.replace(",", ".")
-        )
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+        df[c] = df[c].apply(parse_number)
 
-    # ================= CATEGORY CLEAN =================
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
 
-    # MASTER DF
     df_all = df.copy()
 
-    # ================= CUSTOMER FILTER =================
+    # ================= CUSTOMER =================
     customers = ["All Customers"] + sorted(df_all[col_customer].dropna().unique())
     selected_customer = st.selectbox("👤 Select Customer", customers)
 
@@ -129,8 +142,8 @@ if uploaded_file:
     q25, q26 = df[qty25].sum(), df[qty26].sum()
 
     k1,k2,k3,k4 = st.columns(4)
-    k1.metric("Sales 2025 (€)", f"{s25:,.0f}")
-    k2.metric("Sales 2026 (€)", f"{s26:,.0f}", yoy_format(calc_yoy(s26,s25)))
+    k1.metric("Sales 2025 (€)", f"{s25:,.2f}")
+    k2.metric("Sales 2026 (€)", f"{s26:,.2f}", yoy_format(calc_yoy(s26,s25)))
     k3.metric("Qty 2025", f"{q25:,.0f}")
     k4.metric("Qty 2026", f"{q26:,.0f}", yoy_format(calc_yoy(q26,q25)))
 
@@ -149,22 +162,17 @@ if uploaded_file:
         c1,c2 = st.columns(2)
 
         with c1:
-            st.markdown("### 2025")
             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val25))
 
         with c2:
-            st.markdown("### 2026")
             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val26))
 
         st.markdown("### Category Comparison")
-        st.dataframe(add_index(
-            cat_perf[["Category Clean", val25, val26, "YoY %"]]
-            .sort_values(val26, ascending=False)
-        ))
+        st.dataframe(add_index(cat_perf[["Category Clean", val25, val26, "YoY %"]]))
 
     st.divider()
 
-    # ================= BRAND PERFORMANCE =================
+    # ================= BRAND =================
     st.markdown("## 🏷️ Brand Performance")
 
     brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
@@ -172,10 +180,7 @@ if uploaded_file:
     brand["YoY %"] = brand["YoY"].apply(yoy_format)
 
     st.markdown("### Brand Comparison (2025 vs 2026)")
-    st.dataframe(add_index(
-        brand[[col_brand,val25,val26,"YoY %"]]
-        .sort_values(val26, ascending=False)
-    ))
+    st.dataframe(add_index(brand[[col_brand,val25,val26,"YoY %"]]))
 
     st.divider()
 
@@ -187,16 +192,12 @@ if uploaded_file:
     with c1:
         d = df.sort_values(val25, ascending=False).head(10)
         st.dataframe(add_index(d[[col_code,col_desc,val25,qty25]]))
-
-        fig = px.pie(d, names=col_desc, values=val25)
-        st.plotly_chart(fig)
+        st.plotly_chart(px.pie(d, names=col_desc, values=val25))
 
     with c2:
         d = df.sort_values(val26, ascending=False).head(10)
         st.dataframe(add_index(d[[col_code,col_desc,val26,qty26]]))
-
-        fig = px.pie(d, names=col_desc, values=val26)
-        st.plotly_chart(fig)
+        st.plotly_chart(px.pie(d, names=col_desc, values=val26))
 
     st.divider()
 
@@ -248,10 +249,7 @@ if uploaded_file:
     df_yoy["YoY raw"] = df_yoy.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     df_yoy["YoY %"] = df_yoy["YoY raw"].apply(yoy_format)
 
-    st.dataframe(add_index(
-        df_yoy.sort_values(val26, ascending=False)
-        [[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]]
-    ))
+    st.dataframe(add_index(df_yoy[[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]]))
 
     st.divider()
 
@@ -261,7 +259,7 @@ if uploaded_file:
     yoy_total = calc_yoy(s26,s25)
     qty_diff = q26 - q25
 
-    st.info(f"2026 Sales: €{s26:,.0f} | Qty: {q26:,.0f} (Δ {qty_diff:+,.0f} vs 2025)")
+    st.info(f"2026 Sales: €{s26:,.2f} | Qty: {q26:,.0f} (Δ {qty_diff:+,.0f} vs 2025)")
 
     if yoy_total > 20:
         st.success(f"A 🔥 | Growth: +{yoy_total:.0f}%")
