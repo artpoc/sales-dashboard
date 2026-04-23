@@ -337,12 +337,12 @@ if uploaded_file:
     with c1:
         st.write("#### 2025")
         top25 = cat.sort_values(val25, ascending=False).head(3)
-        st.dataframe(add_index(top25[["Category Clean", val25, "YoY %"]]))
+        st.dataframe(add_index(top25[["Category Clean", val25]]))
 
     with c2:
         st.write("#### 2026")
         top26 = cat.sort_values(val26, ascending=False).head(3)
-        st.dataframe(add_index(top26[["Category Clean", "YoY %"]]))
+        st.dataframe(add_index(top26[["Category Clean", val26, "YoY %"]]))
 
     # ================= GROWTH =================
     st.write("### Growth (YoY)")
