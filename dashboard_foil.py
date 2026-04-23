@@ -55,11 +55,6 @@ def add_index(df):
     df.index = df.index + 1
     return df
 
-def create_color_map(values):
-    unique_vals = sorted(values)
-    colors = px.colors.qualitative.Plotly
-    return {val: colors[i % len(colors)] for i, val in enumerate(unique_vals)}
-
 # ================= MAIN =================
 if uploaded_file:
 
@@ -79,6 +74,22 @@ if uploaded_file:
     qty25 = "Quantity 2025"
     qty26 = "Quantity 2026"
 
+    # ===== numeric safety =====
+    df[val25] = pd.to_numeric(df[val25], errors="coerce").fillna(0)
+    df[val26] = pd.to_numeric(df[val26], errors="coerce").fillna(0)
+    df[qty25] = pd.to_numeric(df[qty25], errors="coerce").fillna(0)
+    df[qty26] = pd.to_numeric(df[qty26], errors="coerce").fillna(0)
+
+    # ================= CATEGORY FILTER =================
+    ALLOWED_CATEGORIES = [
+        "Napkins","Hats","Banner","Straws","Bags","Plates","Paper Cups",
+        "Tablecover","Reusable","Foil","Wooden","Candles","Latex",
+        "Invitations","Articles","Masks","Pinata","Plastic Cups"
+    ]
+
+    df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
+    df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
+
     # ================= CUSTOMER FILTER =================
     customers = ["All Customers"] + sorted(df[col_customer].dropna().unique())
     selected_customer = st.selectbox("👤 Select Customer", customers)
@@ -95,8 +106,6 @@ if uploaded_file:
     c3.write(f"**VAT:** {df[col_vat].iloc[0]}")
 
     # ================= CATEGORY =================
-    df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
-
     categories = ["All Categories"] + sorted(df["Category Clean"].unique())
     selected = st.selectbox("📂 Select Category", categories)
 
@@ -132,19 +141,25 @@ if uploaded_file:
         }).reset_index()
 
         cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
-        cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
 
         c1,c2 = st.columns(2)
 
         with c1:
-            c = add_index(cat_perf.sort_values(val25, ascending=False))
-            st.plotly_chart(px.pie(c, names="Category Clean", values=val25))
-            st.dataframe(c[["Category Clean", val25, "YoY %"]])
+            st.markdown("### 2025")
+            st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val25))
 
         with c2:
-            c = add_index(cat_perf.sort_values(val26, ascending=False))
-            st.plotly_chart(px.pie(c, names="Category Clean", values=val26))
-            st.dataframe(c[["Category Clean", val26, "YoY %"]])
+            st.markdown("### 2026")
+            st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val26))
+
+        # NOWY wykres porównawczy
+        st.markdown("### Category Comparison")
+        cat_perf["YoY %"] = cat_perf["YoY"].apply(lambda x: f"{x:.0f}%")
+
+        st.dataframe(add_index(
+            cat_perf[["Category Clean", val25, val26, "YoY %"]]
+            .sort_values(val26, ascending=False)
+        ))
 
     st.divider()
 
@@ -153,7 +168,7 @@ if uploaded_file:
 
     brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
-    brand["YoY %"] = brand["YoY"].apply(yoy_format)
+    brand["YoY %"] = brand["YoY"].apply(lambda x: f"{x:.0f}%")
 
     c1,c2 = st.columns(2)
 
@@ -166,6 +181,13 @@ if uploaded_file:
         b = add_index(brand.sort_values(val26, ascending=False))
         st.plotly_chart(px.pie(b, names=col_brand, values=val26))
         st.dataframe(b[[col_brand,val26,"YoY %"]])
+
+    # DODANA tabela porównawcza
+    st.markdown("### Brand Comparison")
+    st.dataframe(add_index(
+        brand[[col_brand,val25,val26,"YoY %"]]
+        .sort_values(val26, ascending=False)
+    ))
 
     st.divider()
 
@@ -200,7 +222,6 @@ if uploaded_file:
 
     st.divider()
 
-    
     # ================= PARETO =================
     st.markdown("## 📊 Pareto Analysis")
 
@@ -208,7 +229,11 @@ if uploaded_file:
 
     for year, val in zip([tab1, tab2], [val25, val26]):
         with year:
-            p = df.groupby(col_desc).agg({val25:"sum",val26:"sum"}).reset_index()
+            p = df.groupby([col_desc, "Category Clean"]).agg({
+                val25:"sum",
+                val26:"sum"
+            }).reset_index()
+
             p = p.sort_values(val, ascending=False)
             p["cum"] = p[val].cumsum()/p[val].sum()
 
@@ -216,12 +241,11 @@ if uploaded_file:
 
             st.write(f"Top SKU for 80%: {len(top80)} / {len(p)}")
 
-            # wykres Pareto
-            fig = px.bar(p, x=col_desc, y=val)
+            fig = px.bar(p, x=col_desc, y=val, color="Category Clean")
             fig.add_scatter(x=p[col_desc], y=p["cum"], mode="lines+markers", name="Cumulative %")
             st.plotly_chart(fig)
 
-            st.dataframe(add_index(top80[[col_desc,val25,val26]]))
+            st.dataframe(add_index(top80[[col_desc,"Category Clean",val25,val26]]))
 
     st.divider()
 
@@ -241,6 +265,11 @@ if uploaded_file:
             a.loc[(a["cum"]>0.7)&(a["cum"]<=0.9),"segment"]="B"
 
             st.dataframe(add_index(a[[col_desc,val25,val26,"segment"]]))
+
+            counts = a["segment"].value_counts()
+            st.write(f"A (70%): {counts.get('A',0)} produktów")
+            st.write(f"B (20%): {counts.get('B',0)} produktów")
+            st.write(f"C (10%): {counts.get('C',0)} produktów")
 
     st.divider()
 
