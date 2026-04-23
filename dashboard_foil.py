@@ -262,10 +262,13 @@ if uploaded_file:
 
     for year, val in zip([tab1, tab2], [val25, val26]):
         with year:
-            a = df.groupby(col_desc).agg({
+            a = df.groupby([col_code, col_desc]).agg({
                 val25:"sum",
                 val26:"sum"
             }).reset_index()
+
+            # 🔥 usuwamy zerowe SKU
+            a = a[a[val] > 0]
 
             a = a.sort_values(val, ascending=False)
             a["cum"] = a[val].cumsum()/a[val].sum()
@@ -274,13 +277,13 @@ if uploaded_file:
             a.loc[a["cum"]<=0.7,"segment"]="A"
             a.loc[(a["cum"]>0.7)&(a["cum"]<=0.9),"segment"]="B"
 
-            # 🔥 LICZBA SKU
-            counts = a["segment"].value_counts()
-            st.write(f"A: {counts.get('A',0)} | B: {counts.get('B',0)} | C: {counts.get('C',0)}")
+            # 🔥 liczba SKU w segmentach
+            seg_counts = a["segment"].value_counts()
 
-            # 🔥 TYLKO DANY ROK
+            st.write(f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}")
+
             st.dataframe(add_index(
-                a[[col_desc, val, "segment"]]
+                a[[col_code, col_desc, val, "segment"]]
             ))
 
     st.divider()
