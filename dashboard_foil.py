@@ -195,27 +195,41 @@ if uploaded_file:
 
     with c1:
         st.markdown("### 2025")
-        d = df.sort_values(val25, ascending=False).head(10)
-        st.dataframe(add_index(d[[col_code,col_desc,val25,qty25]]))
+        d25 = df.groupby([col_code, col_desc]).agg({
+            val25: "sum",
+            qty25: "sum"
+        }).reset_index().sort_values(val25, ascending=False).head(10)
 
-        rest = s25 - d[val25].sum()
-        fig = px.pie(
-            names=["Top 10","Others"],
-            values=[d[val25].sum(), rest]
-        )
-        st.plotly_chart(fig)
+        total25 = df[val25].sum()
+        top10_sum25 = d25[val25].sum()
+        share25 = (top10_sum25 / total25 * 100) if total25 > 0 else 0
+
+        st.dataframe(add_index(d25))
+
+        pie25 = d25.copy()
+        pie25.loc[len(pie25)] = ["Other", "Other", total25 - top10_sum25, 0]
+
+        st.plotly_chart(px.pie(pie25, names=col_desc, values=val25))
+        st.info(f"Top 10 share: {share25:.1f}% of total 2025 sales")
 
     with c2:
         st.markdown("### 2026")
-        d = df.sort_values(val26, ascending=False).head(10)
-        st.dataframe(add_index(d[[col_code,col_desc,val26,qty26]]))
+        d26 = df.groupby([col_code, col_desc]).agg({
+            val26: "sum",
+            qty26: "sum"
+        }).reset_index().sort_values(val26, ascending=False).head(10)
 
-        rest = s26 - d[val26].sum()
-        fig = px.pie(
-            names=["Top 10","Others"],
-            values=[d[val26].sum(), rest]
-        )
-        st.plotly_chart(fig)
+        total26 = df[val26].sum()
+        top10_sum26 = d26[val26].sum()
+        share26 = (top10_sum26 / total26 * 100) if total26 > 0 else 0
+
+        st.dataframe(add_index(d26))
+
+        pie26 = d26.copy()
+        pie26.loc[len(pie26)] = ["Other", "Other", total26 - top10_sum26, 0]
+
+        st.plotly_chart(px.pie(pie26, names=col_desc, values=val26))
+        st.info(f"Top 10 share: {share26:.1f}% of total 2026 sales")
 
     st.divider()
 
