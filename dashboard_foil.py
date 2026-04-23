@@ -217,10 +217,15 @@ if uploaded_file:
             p = df.groupby(col_desc).agg({val25:"sum",val26:"sum"}).reset_index()
             p = p.sort_values(val, ascending=False)
             p["cum"] = p[val].cumsum()/p[val].sum()
-            p["YoY"] = p.apply(lambda x: calc_yoy(x[val26],x[val25]), axis=1)
-            p["YoY %"] = p["YoY"].apply(yoy_format)
 
-            st.dataframe(add_index(p[[col_desc,val25,val26,"YoY %"]]))
+            top80 = p[p["cum"] <= 0.8]
+
+            st.write(f"SKU generating 80%: {len(top80)} / {len(p)}")
+
+            fig = px.pie(top80, names=col_desc, values=val, title="Top 80% SKU Share")
+            st.plotly_chart(fig)
+
+        st.dataframe(add_index(top80[[col_desc,val25,val26]]))
 
     st.divider()
 
