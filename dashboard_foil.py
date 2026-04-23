@@ -326,15 +326,23 @@ if uploaded_file:
         val26:"sum"
     }).reset_index()
 
-    # 🔥 FIX brakującego YoY (to powodowało KeyError)
     cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     cat["YoY %"] = cat["YoY"].apply(yoy_format)
 
-    # ================= TOP 3 (jedna tabela 2025 vs 2026) =================
+    # ================= TOP 3 =================
     st.write("### Top 3 Categories")
 
-    top3 = cat.sort_values(val26, ascending=False).head(3)
-    st.dataframe(add_index(top3[["Category Clean", val25, val26, "YoY %"]]))
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.write("#### 2025")
+        top25 = cat.sort_values(val25, ascending=False).head(3)
+        st.dataframe(add_index(top25[["Category Clean", val25, "YoY %"]]))
+
+    with c2:
+        st.write("#### 2026")
+        top26 = cat.sort_values(val26, ascending=False).head(3)
+        st.dataframe(add_index(top26[["Category Clean", "YoY %"]]))
 
     # ================= GROWTH =================
     st.write("### Growth (YoY)")
@@ -349,8 +357,12 @@ if uploaded_file:
     # ================= RISK =================
     st.write("### Risk")
 
-    risk = cat.sort_values("YoY").head(3)
-    st.dataframe(add_index(risk[["Category Clean", val25, val26, "YoY %"]]))
+    risk = cat[cat["YoY"] < 0].sort_values("YoY").head(3)
+
+    if risk.empty:
+        st.success("There is no risk in categories")
+    else:
+        st.dataframe(add_index(risk[["Category Clean", val25, val26, "YoY %"]]))
 
     st.divider()
 
