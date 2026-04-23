@@ -240,7 +240,7 @@ if uploaded_file:
 
     for year, val in zip([tab1, tab2], [val25, val26]):
         with year:
-            p = df.groupby([col_desc, "Category Clean"]).agg({
+            p = df.groupby([col_code, col_desc, "Category Clean"]).agg({
                 val25:"sum",
                 val26:"sum"
             }).reset_index()
@@ -251,7 +251,11 @@ if uploaded_file:
             top80 = p[p["cum"] <= 0.8]
 
             st.write(f"Top SKU for 80%: {len(top80)} / {len(p)}")
-            st.dataframe(add_index(top80[[col_desc,"Category Clean",val25,val26]]))
+
+            # 🔥 dodany Article Number
+            st.dataframe(add_index(
+                top80[[col_code, col_desc, "Category Clean", val]]
+            ))
 
     st.divider()
 
@@ -315,38 +319,36 @@ if uploaded_file:
         val26:"sum"
     }).reset_index()
 
-    # 🔥 FIX
     cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     cat["YoY %"] = cat["YoY"].apply(yoy_format)
 
-    st.write("### Top 3 Categories 2025")
+    # 🔥 TOP 3 w jednej tabeli
+    top3 = cat.sort_values(val26, ascending=False).head(3)
+
+    st.write("### Top 3 Categories (2025 vs 2026)")
     st.dataframe(add_index(
-        cat.sort_values(val25, ascending=False)
-        [[ "Category Clean", val25 ]]
-        .head(3)
+        top3[["Category Clean", val25, val26, "YoY %"]]
     ))
 
-    st.write("### Top 3 Categories 2026")
-    st.dataframe(add_index(
-        cat.sort_values(val26, ascending=False)
-        [[ "Category Clean", val26 ]]
-        .head(3)
-    ))
+    # 🔥 GROWTH z warunkiem
+    growth = cat[cat["YoY"] > 0].sort_values("YoY", ascending=False).head(3)
 
     st.write("### Growth (YoY)")
-    st.dataframe(add_index(
-        cat.sort_values("YoY", ascending=False)
-        [[ "Category Clean", val25, val26, "YoY %" ]]
-        .head(3)
-    ))
+
+    if growth.empty:
+        st.info("No category growth detected.")
+    else:
+        st.dataframe(add_index(
+            growth[["Category Clean", val25, val26, "YoY %"]]
+        ))
+
+    # 🔥 RISK zawsze pokazujemy
+    risk = cat.sort_values("YoY").head(3)
 
     st.write("### Risk (YoY)")
     st.dataframe(add_index(
-        cat.sort_values("YoY")
-        [[ "Category Clean", val25, val26, "YoY %" ]]
-        .head(3)
+        risk[["Category Clean", val25, val26, "YoY %"]]
     ))
-
     st.divider()
 
     # ================= CLIENT SCORE =================
