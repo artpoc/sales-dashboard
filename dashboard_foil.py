@@ -229,6 +229,7 @@ if uploaded_file:
         pie26.loc[len(pie26)] = ["Other", "Other", total26 - top10_sum26, 0]
 
         st.plotly_chart(px.pie(pie26, names=col_desc, values=val26))
+        
         st.info(f"Top 10 share: {share26:.1f}% of total 2026 sales")
 
     st.divider()
