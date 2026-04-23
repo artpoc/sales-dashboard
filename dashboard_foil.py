@@ -310,7 +310,10 @@ if uploaded_file:
     # ================= AUTO INSIGHTS =================
     st.markdown("## 🧠 Auto Insights")
 
-    cat = df_original.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
+    cat = df_original.groupby("Category Clean").agg({
+        val25:"sum",
+        val26:"sum"
+    }).reset_index()
 
     # 🔥 FIX
     cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
@@ -326,21 +329,21 @@ if uploaded_file:
     st.write("### Top 3 Categories 2026")
     st.dataframe(add_index(
         cat.sort_values(val26, ascending=False)
-        [[ "Category Clean", val26, "YoY %"]]
+        [[ "Category Clean", val26 ]]
         .head(3)
     ))
 
-    st.write("### Growth")
+    st.write("### Growth (YoY)")
     st.dataframe(add_index(
         cat.sort_values("YoY", ascending=False)
-        [[ "Category Clean", val26, "YoY %"]]
+        [[ "Category Clean", val25, val26, "YoY %" ]]
         .head(3)
     ))
 
-    st.write("### Risk")
+    st.write("### Risk (YoY)")
     st.dataframe(add_index(
         cat.sort_values("YoY")
-        [[ "Category Clean", val26, "YoY %"]]
+        [[ "Category Clean", val25, val26, "YoY %" ]]
         .head(3)
     ))
 
