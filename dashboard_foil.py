@@ -14,7 +14,7 @@ def calc_yoy(new, old):
             return 100
         else:
             return 0
-    elif old > 0 and new == 0:
+    elif (old > 0) and (pd.isna(new) or new == 0):
         return -100
     else:
         return (new - old) / old * 100
@@ -216,25 +216,44 @@ if uploaded_file:
     # ================= AUTO INSIGHTS =================
     st.markdown("## 🧠 Auto Insights")
 
-    cat = df_original.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
-    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
+    if selected == "All Categories":
 
-    tab1, tab2 = st.tabs(["2025","2026"])
+        cat = df_original.groupby("Category Clean").agg({val25:"sum",val26:"sum"}).reset_index()
+        cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1)
 
-    with tab1:
-        top = cat.sort_values(val25, ascending=False).iloc[0]
-        st.success(f"Top Category 2025: {top['Category Clean']} (€{top[val25]:,.0f})")
+        tab1, tab2 = st.tabs(["2025","2026"])
 
-    with tab2:
-        top = cat.sort_values(val26, ascending=False).iloc[0]
-        st.success(f"Top Category 2026: {top['Category Clean']} (€{top[val26]:,.0f})")
+        with tab1:
+            top = cat.sort_values(val25, ascending=False).iloc[0]
+            st.success(f"Top Category 2025: {top['Category Clean']} (€{top[val25]:,.0f})")
 
-        if selected == "All Categories":
+        with tab2:
+            top = cat.sort_values(val26, ascending=False).iloc[0]
+            st.success(f"Top Category 2026: {top['Category Clean']} (€{top[val26]:,.0f})")
+
             growth = cat.sort_values("YoY", ascending=False).iloc[0]
             risk = cat.sort_values("YoY").iloc[0]
 
             st.info(f"Growth: {growth['Category Clean']} ({growth['YoY']:.0f}%, €{growth[val26]:,.0f})")
             st.warning(f"Risk: {risk['Category Clean']} ({risk['YoY']:.0f}%, €{risk[val26]:,.0f})")
+
+    else:
+        tab1, tab2 = st.tabs(["2025","2026"])
+
+        with tab1:
+            top = df.sort_values(val25, ascending=False).iloc[0]
+            st.success(f"Top Product 2025: {top[col_desc]} (€{top[val25]:,.0f})")
+
+        with tab2:
+            top = df.sort_values(val26, ascending=False).iloc[0]
+            growth = df.assign(YOY=df.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1))\
+                        .sort_values("YOY", ascending=False).iloc[0]
+            risk = df.assign(YOY=df.apply(lambda x: calc_yoy(x[val26],x[val25]),axis=1))\
+                        .sort_values("YOY").iloc[0]
+
+            st.success(f"Top Product 2026: {top[col_desc]} (€{top[val26]:,.0f})")
+            st.info(f"Growth in 2026: {growth[col_desc]} ({calc_yoy(growth[val26],growth[val25]):.0f}%)")
+            st.warning(f"Risk in 2026: {risk[col_desc]} ({calc_yoy(risk[val26],risk[val25]):.0f}%)")
 
     st.divider()
 
