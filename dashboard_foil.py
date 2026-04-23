@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-st.title("📊 Sales Intelligence Dashboard")
+st.title("📊 Sales Intelligence Dashboard - Made by Patryk Pociecha")
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
