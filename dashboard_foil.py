@@ -57,24 +57,23 @@ def normalize_category(x):
     if "pinata" in x: return "Pinata"
     if "article" in x: return "Articles"
     return "Other"
+    
+# ================= LOAD MODE =================
+if mode == "L4L (2025 vs 2026)":
+    file = file_l4l
+    is_l4l = True
+else:
+    file = file_full
+    is_l4l = False
 
-    # ================= LOAD MODE =================
-    if mode == "L4L (2025 vs 2026)":
-        file = file_l4l
-        is_l4l = True
-    else:
-        file = file_full
-        is_l4l = False
+if file is None:
+    st.warning("⬆️ Upload file for selected mode")
+    st.stop()
 
-    if file is None:
-        st.warning("⬆️ Upload file for selected mode")
-        st.stop()
-
-    df = pd.read_excel(file, decimal=",", thousands=" ")
-    df.columns = df.columns.str.strip()
+df = pd.read_excel(file, decimal=",", thousands=" ")
+df.columns = df.columns.str.strip()
 
     # ================= MAIN =================
-
     col_customer = "Customer Name"
     col_country = "Country"
     col_vat = "Vat ID Nr."
@@ -83,14 +82,12 @@ def normalize_category(x):
     col_brand = "Brand Name"
     col_cat = "Category"
 
+
     def detect_columns(df, is_l4l):
         net = sorted([c for c in df.columns if "Net Value" in c])
         qty = sorted([c for c in df.columns if "Quantity" in c])
 
-        if is_l4l:
-            return net[0], net[1], qty[0], qty[1]
-        else:
-            return net[0], net[1], qty[0], qty[1]
+        return net[0], net[1], qty[0], qty[1]
 
 
     val_old, val_new, qty_old, qty_new = detect_columns(df, is_l4l)
