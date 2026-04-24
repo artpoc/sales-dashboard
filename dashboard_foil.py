@@ -3,6 +3,10 @@ import pandas as pd
 import plotly.express as px
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+# ================= CONFIG =================
+# Set how many decimal places to display in tables (0 or 1)
+DISPLAY_DECIMALS = 0  # change to 1 if you want one decimal place (e.g., 232322.4)
+
 # ================= HELPERS & FUNCTIONS =================
 def add_index(df):
     df = df.reset_index(drop=True)
@@ -10,9 +14,7 @@ def add_index(df):
     return df
 
 def to_decimal(x):
-    """Konwertuje wartość na Decimal zachowując dokładność.
-    Obsługuje: None/NaN, int, float, str (z przecinkami i spacjami).
-    """
+    """Convert Excel cell to Decimal preserving visible precision."""
     if pd.isna(x):
         return Decimal('0')
     if isinstance(x, Decimal):
@@ -21,11 +23,10 @@ def to_decimal(x):
         if isinstance(x, int):
             return Decimal(x)
         if isinstance(x, float):
-            # konwersja przez str aby zachować widoczną wartość
             return Decimal(str(x))
         s = str(x).strip()
-        s = s.replace(" ", "")
-        s = s.replace(",", ".")
+        s = s.replace(" ", "")      # remove thousand spaces
+        s = s.replace(",", ".")     # unify decimal separator
         if s == "":
             return Decimal('0')
         return Decimal(s)
@@ -87,18 +88,27 @@ def normalize_category(x):
     if "article" in x: return "Articles"
     return "Other"
 
-def format_no_decimals(d):
-    """Format Decimal as integer string with thousands separator, no decimals."""
+def format_number_plain(d, decimals=DISPLAY_DECIMALS):
+    """Return number as plain string without thousands separators.
+    decimals: 0 or 1
+    """
     if not isinstance(d, Decimal):
         try:
             d = Decimal(str(d))
         except:
             d = Decimal('0')
-    q = d.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
-    return f"{int(q):,}"
+    if decimals == 0:
+        q = d.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        return f"{int(q)}"
+    else:
+        q = d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
+        # ensure one decimal place even if .0
+        s = f"{q:.1f}"
+        # remove thousands separators (none added) and return
+        return s
 
 def sort_by_col_desc(df, col):
-    """Sort descending by col if present; handle Decimal objects."""
+    """Sort descending by col if present; keep numeric type for sorting."""
     if col in df.columns:
         try:
             return df.sort_values(by=col, ascending=False)
@@ -126,7 +136,8 @@ if file is None:
     st.warning("⬆️ Upload file for selected mode")
     st.stop()
 
-# ================= LOAD ONCE (read as object to preserve formatting) =================
+# ================= LOAD ONCE =================
+# Read as object to avoid pandas auto-conversion issues, then convert required cols to Decimal
 df_raw = pd.read_excel(file, dtype=object, engine='openpyxl')
 df_raw.columns = df_raw.columns.str.strip()
 
@@ -152,7 +163,7 @@ col_cat = "Category"
 # work copy
 df = df_raw.copy()
 
-# convert numeric columns to Decimal
+# convert numeric columns to Decimal immediately (before any filtering)
 for c in [val_old, val_new, qty_old, qty_new]:
     if c in df.columns:
         df[c] = df[c].apply(to_decimal)
@@ -166,7 +177,7 @@ for c in [col_customer, col_country, col_vat, col_code, col_desc, col_brand, col
     else:
         df[c] = ""
 
-# Keep original totals (before any UI filters) to match Excel when no filters applied
+# Keep original totals (raw file converted to Decimal) to match Excel when no filters applied
 df_original_all = df.copy()
 
 # ================= COUNTRY FILTER =================
@@ -234,10 +245,10 @@ q_old = decimal_sum(use_df_for_kpi[qty_old])
 q_new = decimal_sum(use_df_for_kpi[qty_new])
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric(f"Sales {val_old}", format_no_decimals(s_old))
-c2.metric(f"Sales {val_new}", format_no_decimals(s_new), yoy_label(calc_yoy_clean(s_new, s_old)))
-c3.metric(f"Qty {qty_old}", format_no_decimals(q_old))
-c4.metric(f"Qty {qty_new}", format_no_decimals(q_new), yoy_label(calc_yoy_clean(q_new, q_old)))
+c1.metric(f"Sales {val_old}", format_number_plain(s_old))
+c2.metric(f"Sales {val_new}", format_number_plain(s_new), yoy_label(calc_yoy_clean(s_new, s_old)))
+c3.metric(f"Qty {qty_old}", format_number_plain(q_old))
+c4.metric(f"Qty {qty_new}", format_number_plain(q_new), yoy_label(calc_yoy_clean(q_new, q_old)))
 
 # ================= CATEGORY PERFORMANCE =================
 if selected == "All Categories":
@@ -285,8 +296,9 @@ if selected == "All Categories":
             "YoY %"
         ]].copy()
 
-        display_df[val_old] = display_df[val_old].apply(format_no_decimals)
-        display_df[val_new] = display_df[val_new].apply(format_no_decimals)
+        # format numbers as plain strings (no thousands separators)
+        display_df[val_old] = display_df[val_old].apply(format_number_plain)
+        display_df[val_new] = display_df[val_new].apply(format_number_plain)
         display_df[f"Share {val_old} %"] = display_df[f"Share {val_old} %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
         display_df[f"Share {val_new} %"] = display_df[f"Share {val_new} %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
@@ -328,8 +340,8 @@ with c2:
     st.plotly_chart(px.pie(brand_plot_new, names=col_brand, values=val_new))
 
 brand_display = brand.copy()
-brand_display[val_old] = brand_display[val_old].apply(format_no_decimals)
-brand_display[val_new] = brand_display[val_new].apply(format_no_decimals)
+brand_display[val_old] = brand_display[val_old].apply(format_number_plain)
+brand_display[val_new] = brand_display[val_new].apply(format_number_plain)
 brand_display[f"Share {val_old} %"] = brand_display[f"Share {val_old} %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 brand_display[f"Share {val_new} %"] = brand_display[f"Share {val_new} %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
@@ -353,7 +365,7 @@ else:
     base_df = df.copy()
     c1, c2 = st.columns(2)
 
-    # OLD YEAR panel: sort by val_old (since panel shows old-year values)
+    # OLD YEAR panel: sort by val_old (panel-specific)
     with c1:
         st.write(f"### {val_old}")
         d_old = base_df.groupby(col_code).agg({
@@ -362,7 +374,7 @@ else:
             qty_old: lambda s: decimal_sum(s)
         }).reset_index()
 
-        # attach val_new for context but sorting for this panel is by val_old
+        # attach val_new for context (not used for sorting in this panel)
         d_old = d_old.merge(
             base_df.groupby(col_code).agg({val_new: lambda s: decimal_sum(s)}).reset_index(),
             on=col_code, how="left"
@@ -380,8 +392,8 @@ else:
             top_old["Share %"] = top_old[val_old].apply(lambda x: (x / total_old * Decimal('100')) if total_old != 0 else Decimal('0'))
 
             top_old_display = top_old.copy()
-            top_old_display[val_old] = top_old_display[val_old].apply(format_no_decimals)
-            top_old_display[qty_old] = top_old_display[qty_old].apply(format_no_decimals)
+            top_old_display[val_old] = top_old_display[val_old].apply(format_number_plain)
+            top_old_display[qty_old] = top_old_display[qty_old].apply(format_number_plain)
             top_old_display["Share %"] = top_old_display["Share %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
             st.dataframe(add_index(top_old_display[[col_code, col_desc, val_old, qty_old, "Share %"]]))
@@ -407,8 +419,8 @@ else:
             top_new["Share %"] = top_new[val_new].apply(lambda x: (x / total_new * Decimal('100')) if total_new != 0 else Decimal('0'))
 
             top_new_display = top_new.copy()
-            top_new_display[val_new] = top_new_display[val_new].apply(format_no_decimals)
-            top_new_display[qty_new] = top_new_display[qty_new].apply(format_no_decimals)
+            top_new_display[val_new] = top_new_display[val_new].apply(format_number_plain)
+            top_new_display[qty_new] = top_new_display[qty_new].apply(format_number_plain)
             top_new_display["Share %"] = top_new_display["Share %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
             st.dataframe(add_index(top_new_display[[col_code, col_desc, val_new, qty_new, "Share %"]]))
@@ -428,16 +440,12 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
             val: lambda s: decimal_sum(s)
         }).reset_index()
 
-        # ensure we have val_new if needed for context
-        if val_new in df.columns and val_new not in p.columns:
-            p = p.merge(df.groupby(col_code).agg({val_new: lambda s: decimal_sum(s)}).reset_index(), on=col_code, how="left")
-            p[val_new] = p[val_new].fillna(Decimal('0'))
-
+        # ensure val exists for sorting in panel
         p = p[p[val] > 0]
         if p.empty:
             st.info("No sales in this period")
         else:
-            # For per-panel view sort by the panel's val descending
+            # per-panel sort by panel's val descending
             p = sort_by_col_desc(p, val)
 
             p["cum_value"] = p[val].cumsum()
@@ -456,7 +464,7 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
             st.write(f"Top SKU for 80%: {pareto_sku} / {total_sku} ({int(sku_share.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}% of SKU)")
 
             p_display = top80[[col_code, col_desc, "Category Clean", val]].copy()
-            p_display[val] = p_display[val].apply(format_no_decimals)
+            p_display[val] = p_display[val].apply(format_number_plain)
 
             st.dataframe(add_index(p_display))
 
@@ -494,7 +502,7 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
             st.write(f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}")
 
             a_display = a[[col_code, col_desc, val, "segment"]].copy()
-            a_display[val] = a_display[val].apply(format_no_decimals)
+            a_display[val] = a_display[val].apply(format_number_plain)
 
             st.dataframe(add_index(a_display))
 
@@ -517,9 +525,9 @@ df_yoy["YoY %"] = df_yoy.apply(lambda x: yoy_label(calc_yoy_clean(x[val_new], x[
 
 df_yoy_display = df_yoy.copy()
 for c in [val_old, val_new]:
-    df_yoy_display[c] = df_yoy_display[c].apply(format_no_decimals)
+    df_yoy_display[c] = df_yoy_display[c].apply(format_number_plain)
 for c in [qty_old, qty_new]:
-    df_yoy_display[c] = df_yoy_display[c].apply(format_no_decimals)
+    df_yoy_display[c] = df_yoy_display[c].apply(format_number_plain)
 
 st.dataframe(add_index(df_yoy_display[[col_code, col_desc, val_old, val_new, qty_old, qty_new, "YoY %"]]))
 
@@ -544,13 +552,13 @@ with c1:
     st.write(f"#### {val_old}")
     top_old_cat = cat.sort_values(val_new, ascending=False).head(5)
     top_old_cat_display = top_old_cat.copy()
-    top_old_cat_display[val_old] = top_old_cat_display[val_old].apply(format_no_decimals)
+    top_old_cat_display[val_old] = top_old_cat_display[val_old].apply(format_number_plain)
     st.dataframe(add_index(top_old_cat_display[["Category Clean", val_old]]))
 with c2:
     st.write(f"#### {val_new}")
     top_new_cat = cat.sort_values(val_new, ascending=False).head(5)
     top_new_cat_display = top_new_cat.copy()
-    top_new_cat_display[val_new] = top_new_cat_display[val_new].apply(format_no_decimals)
+    top_new_cat_display[val_new] = top_new_cat_display[val_new].apply(format_number_plain)
     st.dataframe(add_index(top_new_cat_display[["Category Clean", val_new, "YoY %"]]))
 
 st.write("### Growth (L4L)")
@@ -559,8 +567,8 @@ if growth.empty:
     st.info("There is no growth in categories")
 else:
     growth_display = growth.copy()
-    growth_display[val_old] = growth_display[val_old].apply(format_no_decimals)
-    growth_display[val_new] = growth_display[val_new].apply(format_no_decimals)
+    growth_display[val_old] = growth_display[val_old].apply(format_number_plain)
+    growth_display[val_new] = growth_display[val_new].apply(format_number_plain)
     st.dataframe(add_index(growth_display[["Category Clean", val_old, val_new, "YoY %"]]))
 
 st.write("### Risk")
@@ -569,8 +577,8 @@ if risk.empty:
     st.success("There is no risk in categories")
 else:
     risk_display = risk.copy()
-    risk_display[val_old] = risk_display[val_old].apply(format_no_decimals)
-    risk_display[val_new] = risk_display[val_new].apply(format_no_decimals)
+    risk_display[val_old] = risk_display[val_old].apply(format_number_plain)
+    risk_display[val_new] = risk_display[val_new].apply(format_number_plain)
     st.dataframe(add_index(risk_display[["Category Clean", val_old, val_new, "YoY %"]]))
 
 st.divider()
@@ -610,9 +618,9 @@ if growth.empty:
     st.info("No growth generated by customers")
 else:
     growth_display = growth.copy()
-    growth_display[val_old] = growth_display[val_old].apply(format_no_decimals)
-    growth_display[val_new] = growth_display[val_new].apply(format_no_decimals)
-    growth_display["Change Value"] = growth_display["Change Value"].apply(format_no_decimals)
+    growth_display[val_old] = growth_display[val_old].apply(format_number_plain)
+    growth_display[val_new] = growth_display[val_new].apply(format_number_plain)
+    growth_display["Change Value"] = growth_display["Change Value"].apply(format_number_plain)
     st.dataframe(add_index(growth_display[[col_customer, val_old, val_new, "Change Value", "YoY %"]]))
 
 st.write("### 🔴 Top Decline Drivers")
@@ -624,7 +632,7 @@ if decline.empty:
     st.success("No decline across customers")
 else:
     decline_display = decline.copy()
-    decline_display[val_old] = decline_display[val_old].apply(format_no_decimals)
-    decline_display[val_new] = decline_display[val_new].apply(format_no_decimals)
-    decline_display["Change Value"] = decline_display["Change Value"].apply(format_no_decimals)
+    decline_display[val_old] = decline_display[val_old].apply(format_number_plain)
+    decline_display[val_new] = decline_display[val_new].apply(format_number_plain)
+    decline_display["Change Value"] = decline_display["Change Value"].apply(format_number_plain)
     st.dataframe(add_index(decline_display[[col_customer, val_old, val_new, "Change Value", "YoY %"]]))
