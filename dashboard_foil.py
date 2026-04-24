@@ -446,7 +446,7 @@ if uploaded_file:
 
     st.divider()
 
-  # ================= CUSTOMER IMPACT =================
+    # ================= CUSTOMER IMPACT =================
     st.markdown("## 👥 Customer Impact (Growth vs Decline)")
 
     # 🔥 wybór kategorii
@@ -456,10 +456,17 @@ if uploaded_file:
         ["All Categories"] + all_categories
     )
 
+    # 🔥 NOWY: wybór brandu
+    all_brands = sorted(df_original_all[col_brand].dropna().unique())
+    selected_brand_impact = st.selectbox(
+        "Select Brand (License)",
+        ["All Brands"] + all_brands
+    )
+
     # ================= FUNCTIONS =================
     def calc_yoy_clean(new, old):
         if old < 0 and new == 0:
-            return None  # neutral
+            return None
 
         if pd.isna(old) or old == 0:
             return 100 if new > 0 else 0
@@ -478,8 +485,13 @@ if uploaded_file:
     # ================= DATA PREP =================
     df_impact = df_original_all.copy()
 
+    # 🔥 filtr kategorii
     if selected_cat_impact != "All Categories":
         df_impact = df_impact[df_impact["Category Clean"] == selected_cat_impact]
+
+    # 🔥 filtr brandu (NOWE)
+    if selected_brand_impact != "All Brands":
+        df_impact = df_impact[df_impact[col_brand] == selected_brand_impact]
 
     # 🔥 agregacja per klient
     impact = df_impact.groupby(col_customer).agg({
@@ -493,18 +505,15 @@ if uploaded_file:
     # ================= CALCULATIONS =================
     impact["Change Value"] = impact[val26] - impact[val25]
 
-    # 🔴 special case (już na impact!)
     impact["Special Case"] = (
-    (impact[val25] < 0) & (impact[val26] == 0)
+        (impact[val25] < 0) & (impact[val26] == 0)
     )
 
-    # 🔥 YoY numeric
     impact["YoY"] = impact.apply(
         lambda x: calc_yoy_clean(x[val26], x[val25]),
         axis=1
     )
 
-    # 🔥 YoY label
     impact["YoY %"] = impact.apply(
         lambda x: yoy_label(x["YoY"], x["Special Case"]),
         axis=1
@@ -517,7 +526,6 @@ if uploaded_file:
         (impact["Change Value"] > 0) & (~impact["Special Case"])
     ].sort_values("Change Value", ascending=False).head(10)
 
-    # 🔴 dodajemy special case na koniec
     growth_special = impact[impact["Special Case"]].head(10)
     growth = pd.concat([growth, growth_special])
 
@@ -535,7 +543,6 @@ if uploaded_file:
         (impact["Change Value"] < 0)
     ].sort_values("Change Value").head(10)
 
-    # 🔴 special case też na końcu
     decline_special = impact[impact["Special Case"]].head(10)
     decline = pd.concat([decline, decline_special])
 
