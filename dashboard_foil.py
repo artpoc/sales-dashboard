@@ -309,22 +309,35 @@ if uploaded_file:
 
     for year, val in zip([tab1, tab2], [val25, val26]):
         with year:
+
+            # 🔥 agregacja tylko potrzebnej wartości
             p = df.groupby([col_code, col_desc, "Category Clean"]).agg({
-                val25:"sum",
-                val26:"sum"
+                val: "sum"
             }).reset_index()
 
-            p = p.sort_values(val, ascending=False)
-            p["cum"] = p[val].cumsum()/p[val].sum()
+            # 🔥 KLUCZOWE: usuwamy SKU bez sprzedaży w danym roku
+            p = p[p[val] > 0]
 
-            top80 = p[p["cum"] <= 0.8]
+            if p.empty:
+                st.info("No sales in this year")
+            else:
+                # 🔥 sortowanie
+                p = p.sort_values(val, ascending=False)
 
-            st.write(f"Top SKU for 80%: {len(top80)} / {len(p)}")
+                # 🔥 kumulacja tylko na aktywnych SKU
+                p["cum"] = p[val].cumsum() / p[val].sum()
 
-            # 🔥 dodany Article Number
-            st.dataframe(add_index(
-                top80[[col_code, col_desc, "Category Clean", val]]
-            ))
+                # 🔥 80%
+                top80 = p[p["cum"] <= 0.8]
+
+                total_sku = len(p)
+                pareto_sku = len(top80)
+
+                st.write(f"Top SKU for 80%: {pareto_sku} / {total_sku}")
+
+                st.dataframe(add_index(
+                    top80[[col_code, col_desc, "Category Clean", val]]
+                ))
 
     st.divider()
 
