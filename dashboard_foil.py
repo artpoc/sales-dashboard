@@ -5,7 +5,18 @@ import plotly.express as px
 st.set_page_config(layout="wide")
 st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha ")
 
-uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+col1, col2 = st.columns(2)
+
+with col1:
+    file_l4l = st.file_uploader("📂 Upload L4L (2025 vs 2026)", type=["xlsx"])
+
+with col2:
+    file_full = st.file_uploader("📂 Upload Full Year (2024 vs 2025)", type=["xlsx"])
+
+mode = st.radio(
+    "Select Analysis Mode",
+    ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
+)
 
 # ================= HELPERS =================
 def calc_yoy(new, old):
@@ -52,10 +63,13 @@ def add_index(df):
     return df
 
 # ================= MAIN =================
-if uploaded_file:
+if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
+   (mode == "Full Year (2024 vs 2025)" and file_full):
+
+    file = file_l4l if mode == "L4L (2025 vs 2026)" else file_full
 
     # 🔥 KLUCZOWY FIX
-    df = pd.read_excel(uploaded_file, decimal=",", thousands=" ")
+    df = pd.read_excel(file, decimal=",", thousands=" ")
     df.columns = df.columns.str.strip()
 
     col_customer = "Customer Name"
@@ -66,14 +80,31 @@ if uploaded_file:
     col_brand = "Brand Name"
     col_cat = "Category"
 
-    val25 = "Net Value 2025"
-    val26 = "Net Value 2026"
-    qty25 = "Quantity 2025"
-    qty26 = "Quantity 2026"
+    if mode == "L4L (2025 vs 2026)":
+        val_old = "Net Value 2025"
+        val_new = "Net Value 2026"
+        qty_old = "Quantity 2025"
+        qty_new = "Quantity 2026"
+    else:
+        val_old = "Net Value 2024"
+        val_new = "Net Value 2025"
+        qty_old = "Quantity 2024"
+        qty_new = "Quantity 2025"
 
     # ✅ BEZPIECZNA KONWERSJA
-    for c in [val25, val26, qty25, qty26]:
+    for c in [val_old, val_new, qty_old, qty_new]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    # ================= COUNTRY FILTER =================
+    countries = ["All Countries"] + sorted(df[col_country].dropna().unique())
+
+    selected_country = st.selectbox("🌍 Select Country", countries)
+
+    if selected_country != "All Countries":
+        df = df[df[col_country] == selected_country]
+
+    # 🔥 ZAPIS PEŁNYCH DANYCH
+    df_original_all = df.copy()
 
     # ================= CATEGORY FILTER =================
     ALLOWED_CATEGORIES = [
@@ -85,8 +116,6 @@ if uploaded_file:
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
 
-    # 🔥 ZAPIS PEŁNYCH DANYCH
-    df_original_all = df.copy()
 
     # ================= CUSTOMER FILTER =================
     customers = ["All Customers"] + sorted(df[col_customer].dropna().unique())
@@ -131,12 +160,12 @@ if uploaded_file:
     # ================= KPI =================
     st.markdown("## 💰 KPI (EUR / PCS)")
 
-    s25, s26 = df[val25].sum(), df[val26].sum()
-    q25, q26 = df[qty25].sum(), df[qty26].sum()
+    s25, s26 = df[val_old].sum(), df[val_new].sum()
+    q25, q26 = df[qty_old].sum(), df[qty_new].sum()
 
     k1,k2,k3,k4 = st.columns(4)
-    k1.metric("Sales 2025 (€)", f"{s25:,.2f}")
-    k2.metric("Sales 2026 (€)", f"{s26:,.2f}", f"{calc_yoy(s26,s25):+.0f}%")
+    k1.metric(f"Sales {val_old.split()[-1]} (€)", f"{s25:,.2f}")
+    k2.metric(f"Sales {val_new.split()[-1]} (€)", f"{s26:,.2f}", f"{calc_yoy(s26,s25):+.0f}%")
     k3.metric("Qty 2025", f"{q25:,.0f}")
     k4.metric("Qty 2026", f"{q26:,.0f}", f"{calc_yoy(q26,q25):+.0f}%")
 
@@ -145,19 +174,19 @@ if uploaded_file:
         st.markdown("## 📊 Category Performance")
 
         cat_perf = df_context.groupby("Category Clean").agg({
-            val25: "sum",
-            val26: "sum"
+            val_old: "sum",
+            val_new: "sum"
         }).reset_index()
 
         # 🔥 SHARE %
-        total25 = cat_perf[val25].sum()
-        total26 = cat_perf[val26].sum()
+        total25 = cat_perf[val_old].sum()
+        total26 = cat_perf[val_new].sum()
 
-        cat_perf["Share 2025 %"] = cat_perf[val25] / total25 * 100
-        cat_perf["Share 2026 %"] = cat_perf[val26] / total26 * 100
+        cat_perf["Share 2025 %"] = cat_perf[val_old] / total25 * 100
+        cat_perf["Share 2026 %"] = cat_perf[val_new] / total26 * 100
 
         # 🔥 YoY
-        cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
+        cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
         cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
 
         # 🔥 format %
@@ -168,20 +197,20 @@ if uploaded_file:
 
         with c1:
             st.markdown("### 2025")
-            st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val25))
+            st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_old))
 
         with c2:
             st.markdown("### 2026")
-            st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val26))
+            st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_new))
 
         st.markdown("### Category Comparison")
         st.dataframe(add_index(
             cat_perf[[
                 "Category Clean",
-                val25, "Share 2025 %",
-                val26, "Share 2026 %",
+                val_old, "Share 2025 %",
+                val_new, "Share 2026 %",
                 "YoY %"
-            ]].sort_values(val26, ascending=False)
+            ]].sort_values(val_new, ascending=False)
         ))
 
     st.divider()
@@ -190,19 +219,19 @@ if uploaded_file:
     st.markdown("## 🏷️ Brand Performance")
 
     brand = df.groupby(col_brand).agg({
-        val25: "sum",
-        val26: "sum"
+        val_old: "sum",
+        val_new: "sum"
     }).reset_index()
 
     # 🔥 SHARE %
-    total25 = brand[val25].sum()
-    total26 = brand[val26].sum()
+    total25 = brand[val_old].sum()
+    total26 = brand[val_new].sum()
 
-    brand["Share 2025 %"] = brand[val25] / total25 * 100
-    brand["Share 2026 %"] = brand[val26] / total26 * 100
+    brand["Share 2025 %"] = brand[val_old] / total25 * 100
+    brand["Share 2026 %"] = brand[val_new] / total26 * 100
 
     # 🔥 YoY
-    brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
+    brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
     brand["YoY %"] = brand["YoY"].apply(yoy_format)
 
     # 🔥 format %
@@ -213,19 +242,19 @@ if uploaded_file:
 
     with c1:
         st.markdown("### 2025")
-        st.plotly_chart(px.pie(brand, names=col_brand, values=val25))
+        st.plotly_chart(px.pie(brand, names=col_brand, values=val_old))
 
     with c2:
         st.markdown("### 2026")
-        st.plotly_chart(px.pie(brand, names=col_brand, values=val26))
+        st.plotly_chart(px.pie(brand, names=col_brand, values=val_new))
 
     st.dataframe(add_index(
         brand[[
             col_brand,
-            val25, "Share 2025 %",
-            val26, "Share 2026 %",
+            val_old, "Share 2025 %",
+            val_new, "Share 2026 %",
             "YoY %"
-        ]].sort_values(val26, ascending=False)
+        ]].sort_values(val_new, ascending=False)
     ))
 
     st.divider()
@@ -243,26 +272,26 @@ if uploaded_file:
             st.write("### 2025")
 
             d25 = df.groupby([col_code, col_desc]).agg({
-                val25: "sum",
-                qty25: "sum"
+                val_old: "sum",
+                qty_old: "sum"
             }).reset_index()
 
             # 🔥 tylko SKU ze sprzedażą
-            d25 = d25[d25[val25] > 0]
+            d25 = d25[d25[val_old] > 0]
 
             if d25.empty:
                 st.info("No sales in 2025")
             else:
-                top25 = d25.sort_values(val25, ascending=False).head(10)
+                top25 = d25.sort_values(val_old, ascending=False).head(10)
 
-                total25 = d25[val25].sum()
-                top25_sum = top25[val25].sum()
+                total25 = d25[val_old].sum()
+                top25_sum = top25[val_old].sum()
 
                 # 🔥 udział %
-                top25["Share %"] = top25[val25] / total25 * 100
+                top25["Share %"] = top25[val_old] / total25 * 100
 
                 st.dataframe(add_index(
-                    top25[[col_code, col_desc, val25, qty25, "Share %"]]
+                    top25[[col_code, col_desc, val_old, qty_old, "Share %"]]
                 ))
 
                 st.write(f"Top 10 share: {(top25_sum/total25*100):.1f}%")
@@ -273,26 +302,26 @@ if uploaded_file:
             st.write("### 2026")
 
             d26 = df.groupby([col_code, col_desc]).agg({
-                val26: "sum",
-                qty26: "sum"
+                val_new: "sum",
+                qty_new: "sum"
             }).reset_index()
 
             # 🔥 tylko SKU ze sprzedażą
-            d26 = d26[d26[val26] > 0]
+            d26 = d26[d26[val_new] > 0]
 
             if d26.empty:
                 st.info("No sales in 2026")
             else:
-                top26 = d26.sort_values(val26, ascending=False).head(10)
+                top26 = d26.sort_values(val_new, ascending=False).head(10)
 
-                total26 = d26[val26].sum()
-                top26_sum = top26[val26].sum()
+                total26 = d26[val_new].sum()
+                top26_sum = top26[val_new].sum()
 
                 # 🔥 udział %
-                top26["Share %"] = top26[val26] / total26 * 100
+                top26["Share %"] = top26[val_new] / total26 * 100
 
                 st.dataframe(add_index(
-                    top26[[col_code, col_desc, val26, qty26, "Share %"]]
+                    top26[[col_code, col_desc, val_new, qty_new, "Share %"]]
                 ))
 
                 st.write(f"Top 10 share: {(top26_sum/total26*100):.1f}%")
@@ -304,7 +333,7 @@ if uploaded_file:
 
     tab1, tab2 = st.tabs(["2025","2026"])
 
-    for year, val in zip([tab1, tab2], [val25, val26]):
+    for year, val in zip([tab1, tab2], [val_old, val_new]):
         with year:
 
             # 🔥 agregacja do poziomu SKU (unikalny Art. Nr.)
@@ -351,11 +380,11 @@ if uploaded_file:
 
     tab1, tab2 = st.tabs(["2025","2026"])
 
-    for year, val in zip([tab1, tab2], [val25, val26]):
+    for year, val in zip([tab1, tab2], [val_old, val_new]):
         with year:
             a = df.groupby([col_code, col_desc]).agg({
-                val25:"sum",
-                val26:"sum"
+                val_old:"sum",
+                val_new:"sum"
             }).reset_index()
 
             # 🔥 usuwamy zerowe SKU
@@ -383,17 +412,17 @@ if uploaded_file:
     st.markdown("## 📈 L4L Analysis")
 
     df_yoy = df.groupby([col_code, col_desc]).agg({
-        val25: "sum",
-        val26: "sum",
-        qty25: "sum",
-        qty26: "sum"
+        val_old: "sum",
+        val_new: "sum",
+        qty_old: "sum",
+        qty_new: "sum"
     }).reset_index()
 
-    df_yoy["YoY %"] = df_yoy.apply(lambda x: yoy_format(calc_yoy(x[val26], x[val25])), axis=1)
+    df_yoy["YoY %"] = df_yoy.apply(lambda x: yoy_format(calc_yoy(x[val_new], x[val_old])), axis=1)
 
     st.dataframe(add_index(
-        df_yoy.sort_values(val26, ascending=False)
-        [[col_code,col_desc,val25,val26,qty25,qty26,"YoY %"]]
+        df_yoy.sort_values(val_new, ascending=False)
+        [[col_code,col_desc,val_old,val_new,qty_old,qty_new,"YoY %"]]
     ))
 
     st.divider()
@@ -402,11 +431,11 @@ if uploaded_file:
     st.markdown("## 🧠 Auto Insights")
 
     cat = df_context.groupby("Category Clean").agg({
-        val25:"sum",
-        val26:"sum"
+        val_old:"sum",
+        val_new:"sum"
     }).reset_index()
 
-    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
+    cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
     cat["YoY %"] = cat["YoY"].apply(yoy_format)
 
     # ================= TOP 3 =================
@@ -416,13 +445,13 @@ if uploaded_file:
 
     with c1:
         st.write("#### 2025")
-        top25 = cat.sort_values(val25, ascending=False).head(5)
-        st.dataframe(add_index(top25[["Category Clean", val25]]))
+        top25 = cat.sort_values(val_old, ascending=False).head(5)
+        st.dataframe(add_index(top25[["Category Clean", val_old]]))
 
     with c2:
         st.write("#### 2026")
-        top26 = cat.sort_values(val26, ascending=False).head(5)
-        st.dataframe(add_index(top26[["Category Clean", val26, "YoY %"]]))
+        top26 = cat.sort_values(val_new, ascending=False).head(5)
+        st.dataframe(add_index(top26[["Category Clean", val_new, "YoY %"]]))
 
     # ================= GROWTH =================
     st.write("### Growth (L4L)")
@@ -432,7 +461,7 @@ if uploaded_file:
     if growth.empty:
         st.info("There is no growth in categories")
     else:
-        st.dataframe(add_index(growth[["Category Clean", val25, val26, "YoY %"]]))
+        st.dataframe(add_index(growth[["Category Clean", val_old, val_new, "YoY %"]]))
 
     # ================= RISK =================
     st.write("### Risk")
@@ -442,7 +471,7 @@ if uploaded_file:
     if risk.empty:
         st.success("There is no risk in categories")
     else:
-        st.dataframe(add_index(risk[["Category Clean", val25, val26, "YoY %"]]))
+        st.dataframe(add_index(risk[["Category Clean", val_old, val_new, "YoY %"]]))
 
     st.divider()
 
@@ -495,22 +524,22 @@ if uploaded_file:
 
     # 🔥 agregacja per klient
     impact = df_impact.groupby(col_customer).agg({
-        val25: "sum",
-        val26: "sum"
+        val_old: "sum",
+        val_new: "sum"
     }).reset_index()
 
     # 🔥 usuwamy klientów bez sprzedaży
-    impact = impact[(impact[val25] != 0) | (impact[val26] != 0)]
+    impact = impact[(impact[val_old] != 0) | (impact[val_new] != 0)]
 
     # ================= CALCULATIONS =================
-    impact["Change Value"] = impact[val26] - impact[val25]
+    impact["Change Value"] = impact[val_new] - impact[val_old]
 
     impact["Special Case"] = (
-        (impact[val25] < 0) & (impact[val26] == 0)
+        (impact[val_old] < 0) & (impact[val_new] == 0)
     )
 
     impact["YoY"] = impact.apply(
-        lambda x: calc_yoy_clean(x[val26], x[val25]),
+        lambda x: calc_yoy_clean(x[val_new], x[val_old]),
         axis=1
     )
 
@@ -533,7 +562,7 @@ if uploaded_file:
         st.info("No growth generated by customers")
     else:
         st.dataframe(add_index(
-            growth[[col_customer, val25, val26, "Change Value", "YoY %"]]
+            growth[[col_customer, val_old, val_new, "Change Value", "YoY %"]]
         ))
 
     # ================= TOP DECLINE =================
@@ -550,5 +579,5 @@ if uploaded_file:
         st.success("No decline across customers")
     else:
         st.dataframe(add_index(
-            decline[[col_customer, val25, val26, "Change Value", "YoY %"]]
+            decline[[col_customer, val_old, val_new, "Change Value", "YoY %"]]
         ))
