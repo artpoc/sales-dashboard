@@ -62,11 +62,16 @@ def add_index(df):
     df.index = df.index + 1
     return df
 
+    if is_l4l:
+        df = pd.read_excel(file_l4l, decimal=",", thousands=" ")
+    else:
+        df = pd.read_excel(file_full, decimal=",", thousands=" ")
+
+    df.columns = df.columns.str.strip()
+
 # ================= MAIN =================
 if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
    (mode == "Full Year (2024 vs 2025)" and file_full):
-
-    file = file_l4l if mode == "L4L (2025 vs 2026)" else file_full
 
     # 🔥 KLUCZOWY FIX
     df = pd.read_excel(file, decimal=",", thousands=" ")
@@ -80,16 +85,17 @@ if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
     col_brand = "Brand Name"
     col_cat = "Category"
 
-    if mode == "L4L (2025 vs 2026)":
-        val_old = "Net Value 2025"
-        val_new = "Net Value 2026"
-        qty_old = "Quantity 2025"
-        qty_new = "Quantity 2026"
-    else:
-        val_old = "Net Value 2024"
-        val_new = "Net Value 2025"
-        qty_old = "Quantity 2024"
-        qty_new = "Quantity 2025"
+    def detect_columns(df):
+        net = sorted([c for c in df.columns if "Net Value" in c])
+        qty = sorted([c for c in df.columns if "Quantity" in c])
+
+        if is_l4l:
+            return net[0], net[1], qty[0], qty[1]
+        else:
+            return net[1], net[1], qty[1], qty[1]  # FULL YEAR = tylko NOWY ROK
+
+
+    val_old, val_new, qty_old, qty_new = detect_columns(df)
 
     # ✅ BEZPIECZNA KONWERSJA
     for c in [val_old, val_new, qty_old, qty_new]:
@@ -119,6 +125,11 @@ if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
     # DOPIERO TERAZ ZAPIS PEŁNEGO DATASETU
     df_original_all = df.copy()
     df_context = df_original_all.copy()
+
+    if not is_l4l:
+        df_analysis = df_original_all.copy()
+    else:
+        df_analysis = df.copy()
 
 
     # ================= CUSTOMER FILTER =================
