@@ -81,7 +81,21 @@ if file is None:
     st.warning("⬆️ Upload file for selected mode")
     st.stop()
 
-df = pd.read_excel(file, decimal=",", thousands=" ")
+def clean_number(x):
+    if pd.isna(x):
+        return 0
+    x = str(x).replace(" ", "").replace(",", ".")
+    try:
+        return float(x)
+    except:
+        return 0
+
+for c in [val_old, val_new]:
+    df[c] = df[c].apply(clean_number)
+
+for c in [qty_old, qty_new]:
+    df[c] = df[c].apply(clean_number)
+    
 df.columns = df.columns.str.strip()
 
 # ================= SAFE COLUMN DETECTION (DYNAMIC INDEX) =================
@@ -276,10 +290,17 @@ else:
     with c1:
         st.write(f"### {val_old}")
 
-        d_old = df.groupby([col_code, col_desc]).agg({
-            val_old: "sum",
-            qty_old: "sum"
-        }).reset_index()
+    base_df = df_context.copy()
+
+    d_old = base_df.groupby(col_code).agg({
+        col_desc: "first",
+        val_old: "sum",
+        qty_old: "sum"
+    }).reset_index()
+
+    d_old = d_old[d_old[val_old] > 0]
+    d_old = d_old.sort_values(val_old, ascending=False)
+    top_old = d_old.head(10)
 
         # 🔥 tylko SKU ze sprzedażą
         d_old = d_old[d_old[val_old] > 0]
