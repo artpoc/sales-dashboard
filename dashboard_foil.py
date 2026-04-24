@@ -2,44 +2,30 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Dodana brakująca funkcja, aby kod działał poprawnie
+# ================= HELPERS & FUNCTIONS =================
 def add_index(df):
     return df.reset_index(drop=True)
 
-st.set_page_config(layout="wide")
-st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
-
-# ================= FILE UPLOAD =================
-col1, col2 = st.columns(2)
-
-with col1:
-    file_l4l = st.file_uploader("📂 Upload L4L (2025 vs 2026)", type=["xlsx"])
-
-with col2:
-    file_full = st.file_uploader("📂 Upload Full Year (2024 vs 2025)", type=["xlsx"])
-
-mode = st.radio(
-    "Select Analysis Mode",
-    ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
-)
-
-# ================= HELPERS =================
-def calc_yoy(new, old):
+def calc_yoy_clean(new, old):
+    if old < 0 and new == 0:
+        return None
     if pd.isna(old) or old == 0:
         return 100 if new > 0 else 0
-    elif pd.notna(old) and old > 0 and (pd.isna(new) or new == 0):
+    elif old > 0 and (pd.isna(new) or new == 0):
         return -100
     else:
-        return (new - old) / old * 100
+        return (new - old) / abs(old) * 100
 
-
-def yoy_format(v):
-    if v > 0:
-        return f"+{v:.0f}% 🟢"
-    elif v < 0:
-        return f"{v:.0f}% 🔴"
+def yoy_label(val, special=False):
+    if special:
+        return "Recovery to 0 ⚠️"
+    if val is None:
+        return "0%"
+    if val > 0:
+        return f"+{val:.0f}% 🟢"
+    elif val < 0:
+        return f"{val:.0f}% 🔴"
     return "0%"
-
 
 def normalize_category(x):
     x = str(x).lower()
@@ -63,6 +49,24 @@ def normalize_category(x):
     if "article" in x: return "Articles"
     return "Other"
 
+# ================= CONFIG & UI =================
+st.set_page_config(layout="wide")
+st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
+
+# ================= FILE UPLOAD =================
+col1, col2 = st.columns(2)
+
+with col1:
+    file_l4l = st.file_uploader("📂 Upload L4L (2025 vs 2026)", type=["xlsx"])
+
+with col2:
+    file_full = st.file_uploader("📂 Upload Full Year (2024 vs 2025)", type=["xlsx"])
+
+mode = st.radio(
+    "Select Analysis Mode",
+    ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
+)
+
 # ================= LOAD =================
 file = file_l4l if mode == "L4L (2025 vs 2026)" else file_full
 
@@ -73,6 +77,20 @@ if file is None:
 df = pd.read_excel(file, decimal=",", thousands=" ")
 df.columns = df.columns.str.strip()
 
+# ================= SAFE COLUMN DETECTION (DYNAMIC INDEX) =================
+# Oczekujemy, że kolumny to odpowiednio: H(7), I(8), J(9), K(10)
+if len(df.columns) < 11:
+    st.error("🚨 Brak wymaganych kolumn w pliku. Oczekiwano kolumn od A do K (min. 11 kolumn).")
+    st.stop()
+
+val_old = df.columns[7]
+qty_old = df.columns[8]
+val_new = df.columns[9]
+qty_new = df.columns[10]
+
+for c in [val_old, val_new, qty_old, qty_new]:
+    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
 # ================= COLUMNS =================
 col_customer = "Customer Name"
 col_country = "Country"
@@ -81,22 +99,6 @@ col_code = "Art. Nr."
 col_desc = "Article description"
 col_brand = "Brand Name"
 col_cat = "Category"
-
-# ================= SAFE COLUMN DETECTION =================
-def detect_columns(df):
-    net = sorted([c for c in df.columns if "Net Value" in c])
-    qty = sorted([c for c in df.columns if "Quantity" in c])
-
-    if len(net) < 2 or len(qty) < 2:
-        raise ValueError("Brak wymaganych kolumn Net Value / Quantity")
-
-    return net[0], net[1], qty[0], qty[1]
-
-
-val_old, val_new, qty_old, qty_new = detect_columns(df)
-
-for c in [val_old, val_new, qty_old, qty_new]:
-    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
 # ================= COUNTRY FILTER =================
 countries = ["All Countries"] + sorted(df[col_country].dropna().unique())
@@ -151,16 +153,16 @@ df = df[df[col_desc].str.lower() != "none"]
 st.divider()
 
 # ================= KPI =================
-st.markdown("## 💰 KPI (EUR / PCS)")
+st.markdown(f"## 💰 KPI (EUR / PCS)")
 
 s_old, s_new = df[val_old].sum(), df[val_new].sum()
 q_old, q_new = df[qty_old].sum(), df[qty_new].sum()
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric(f"Sales {val_old.split()[-1]}", f"{s_old:,.2f}")
-c2.metric(f"Sales {val_new.split()[-1]}", f"{s_new:,.2f}", f"{calc_yoy(s_new,s_old):+.0f}%")
-c3.metric("Qty Old", f"{q_old:,.0f}")
-c4.metric("Qty New", f"{q_new:,.0f}", f"{calc_yoy(q_new,q_old):+.0f}%")
+c1.metric(f"Sales {val_old}", f"{s_old:,.2f}")
+c2.metric(f"Sales {val_new}", f"{s_new:,.2f}", yoy_label(calc_yoy_clean(s_new, s_old)))
+c3.metric(f"Qty {qty_old}", f"{q_old:,.0f}")
+c4.metric(f"Qty {qty_new}", f"{q_new:,.0f}", yoy_label(calc_yoy_clean(q_new, q_old)))
 
 # ================= CATEGORY PERFORMANCE =================
 if selected == "All Categories":
@@ -171,37 +173,37 @@ if selected == "All Categories":
         val_new: "sum"
     }).reset_index()
 
-    total25 = cat_perf[val_old].sum()
-    total26 = cat_perf[val_new].sum()
+    total_old = cat_perf[val_old].sum()
+    total_new = cat_perf[val_new].sum()
 
-    if total25 == 0 or total26 == 0:
+    if total_old == 0 or total_new == 0:
         st.warning("No data for category performance")
     else:
-        cat_perf["Share 2025 %"] = cat_perf[val_old] / total25 * 100
-        cat_perf["Share 2026 %"] = cat_perf[val_new] / total26 * 100
+        cat_perf[f"Share {val_old} %"] = cat_perf[val_old] / total_old * 100
+        cat_perf[f"Share {val_new} %"] = cat_perf[val_new] / total_new * 100
 
-        cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
-        cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
+        cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy_clean(x[val_new], x[val_old]), axis=1)
+        cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_label)
 
-        cat_perf["Share 2025 %"] = cat_perf["Share 2025 %"].map(lambda x: f"{x:.1f}%")
-        cat_perf["Share 2026 %"] = cat_perf["Share 2026 %"].map(lambda x: f"{x:.1f}%")
+        cat_perf[f"Share {val_old} %"] = cat_perf[f"Share {val_old} %"].map(lambda x: f"{x:.1f}%")
+        cat_perf[f"Share {val_new} %"] = cat_perf[f"Share {val_new} %"].map(lambda x: f"{x:.1f}%")
 
         c1, c2 = st.columns(2)
 
         with c1:
-            st.markdown("### 2025")
+            st.markdown(f"### {val_old}")
             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_old))
 
         with c2:
-            st.markdown("### 2026")
+            st.markdown(f"### {val_new}")
             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_new))
 
         st.markdown("### Category Comparison")
         st.dataframe(add_index(
             cat_perf.sort_values(val_new, ascending=False)[[
                 "Category Clean",
-                val_old, "Share 2025 %",
-                val_new, "Share 2026 %",
+                val_old, f"Share {val_old} %",
+                val_new, f"Share {val_new} %",
                 "YoY %"
             ]]
         ))
@@ -217,35 +219,35 @@ brand = df.groupby(col_brand).agg({
 }).reset_index()
 
 # 🔥 SHARE %
-total25 = brand[val_old].sum()
-total26 = brand[val_new].sum()
+total_old = brand[val_old].sum()
+total_new = brand[val_new].sum()
 
-brand["Share 2025 %"] = brand[val_old] / total25 * 100
-brand["Share 2026 %"] = brand[val_new] / total26 * 100
+brand[f"Share {val_old} %"] = brand[val_old] / total_old * 100 if total_old > 0 else 0
+brand[f"Share {val_new} %"] = brand[val_new] / total_new * 100 if total_new > 0 else 0
 
 # 🔥 YoY
-brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
-brand["YoY %"] = brand["YoY"].apply(yoy_format)
+brand["YoY"] = brand.apply(lambda x: calc_yoy_clean(x[val_new], x[val_old]), axis=1)
+brand["YoY %"] = brand["YoY"].apply(yoy_label)
 
 # 🔥 format %
-brand["Share 2025 %"] = brand["Share 2025 %"].map(lambda x: f"{x:.1f}%")
-brand["Share 2026 %"] = brand["Share 2026 %"].map(lambda x: f"{x:.1f}%")
+brand[f"Share {val_old} %"] = brand[f"Share {val_old} %"].map(lambda x: f"{x:.1f}%")
+brand[f"Share {val_new} %"] = brand[f"Share {val_new} %"].map(lambda x: f"{x:.1f}%")
 
-c1,c2 = st.columns(2)
+c1, c2 = st.columns(2)
 
 with c1:
-    st.markdown("### 2025")
+    st.markdown(f"### {val_old}")
     st.plotly_chart(px.pie(brand, names=col_brand, values=val_old))
 
 with c2:
-    st.markdown("### 2026")
+    st.markdown(f"### {val_new}")
     st.plotly_chart(px.pie(brand, names=col_brand, values=val_new))
 
 st.dataframe(add_index(
     brand[[
         col_brand,
-        val_old, "Share 2025 %",
-        val_new, "Share 2026 %",
+        val_old, f"Share {val_old} %",
+        val_new, f"Share {val_new} %",
         "YoY %"
     ]].sort_values(val_new, ascending=False)
 ))
@@ -260,71 +262,71 @@ if df.empty:
 else:
     c1, c2 = st.columns(2)
 
-    # ================= 2025 =================
+    # ================= OLD YEAR =================
     with c1:
-        st.write("### 2025")
+        st.write(f"### {val_old}")
 
-        d25 = df.groupby([col_code, col_desc]).agg({
+        d_old = df.groupby([col_code, col_desc]).agg({
             val_old: "sum",
             qty_old: "sum"
         }).reset_index()
 
         # 🔥 tylko SKU ze sprzedażą
-        d25 = d25[d25[val_old] > 0]
+        d_old = d_old[d_old[val_old] > 0]
 
-        if d25.empty:
-            st.info("No sales in 2025")
+        if d_old.empty:
+            st.info(f"No sales in {val_old}")
         else:
-            top25 = d25.sort_values(val_old, ascending=False).head(10)
+            top_old = d_old.sort_values(val_old, ascending=False).head(10)
 
-            total25 = d25[val_old].sum()
-            top25_sum = top25[val_old].sum()
+            total_old = d_old[val_old].sum()
+            top_old_sum = top_old[val_old].sum()
 
             # 🔥 udział %
-            top25["Share %"] = top25[val_old] / total25 * 100
+            top_old["Share %"] = top_old[val_old] / total_old * 100
 
             st.dataframe(add_index(
-                top25[[col_code, col_desc, val_old, qty_old, "Share %"]]
+                top_old[[col_code, col_desc, val_old, qty_old, "Share %"]]
             ))
 
-            st.write(f"Top 10 share: {(top25_sum/total25*100):.1f}%")
+            st.write(f"Top 10 share: {(top_old_sum/total_old*100):.1f}%")
 
 
-    # ================= 2026 =================
+    # ================= NEW YEAR =================
     with c2:
-        st.write("### 2026")
+        st.write(f"### {val_new}")
 
-        d26 = df.groupby([col_code, col_desc]).agg({
+        d_new = df.groupby([col_code, col_desc]).agg({
             val_new: "sum",
             qty_new: "sum"
         }).reset_index()
 
         # 🔥 tylko SKU ze sprzedażą
-        d26 = d26[d26[val_new] > 0]
+        d_new = d_new[d_new[val_new] > 0]
 
-        if d26.empty:
-            st.info("No sales in 2026")
+        if d_new.empty:
+            st.info(f"No sales in {val_new}")
         else:
-            top26 = d26.sort_values(val_new, ascending=False).head(10)
+            top_new = d_new.sort_values(val_new, ascending=False).head(10)
 
-            total26 = d26[val_new].sum()
-            top26_sum = top26[val_new].sum()
+            total_new = d_new[val_new].sum()
+            top_new_sum = top_new[val_new].sum()
 
             # 🔥 udział %
-            top26["Share %"] = top26[val_new] / total26 * 100
+            top_new["Share %"] = top_new[val_new] / total_new * 100
 
             st.dataframe(add_index(
-                top26[[col_code, col_desc, val_new, qty_new, "Share %"]]
+                top_new[[col_code, col_desc, val_new, qty_new, "Share %"]]
             ))
 
-            st.write(f"Top 10 share: {(top26_sum/total26*100):.1f}%")
+            st.write(f"Top 10 share: {(top_new_sum/total_new*100):.1f}%")
 
 st.divider()
 
 # ================= PARETO =================
 st.markdown("## 📊 Pareto Analysis")
 
-tab1, tab2 = st.tabs(["2025","2026"])
+tab1, tab2 = st.tabs([val_old, val_new])
 
 for year, val in zip([tab1, tab2], [val_old, val_new]):
     with year:
@@ -340,7 +342,7 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
         p = p[p[val] > 0]
 
         if p.empty:
-            st.info("No sales in this year")
+            st.info("No sales in this period")
         else:
             # 🔥 sortowanie malejąco
             p = p.sort_values(val, ascending=False)
@@ -371,7 +373,7 @@ st.divider()
 # ================= ABC =================
 st.markdown("## 📊 ABC Analysis")
 
-tab1, tab2 = st.tabs(["2025","2026"])
+tab1, tab2 = st.tabs([val_old, val_new])
 
 for year, val in zip([tab1, tab2], [val_old, val_new]):
     with year:
@@ -384,11 +386,11 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
         a = a[a[val] > 0]
 
         a = a.sort_values(val, ascending=False)
-        a["cum"] = a[val].cumsum()/a[val].sum()
+        a["cum"] = a[val].cumsum() / a[val].sum()
 
         a["segment"] = "C"
-        a.loc[a["cum"]<=0.7,"segment"]="A"
-        a.loc[(a["cum"]>0.7)&(a["cum"]<=0.9),"segment"]="B"
+        a.loc[a["cum"] <= 0.7, "segment"] = "A"
+        a.loc[(a["cum"] > 0.7) & (a["cum"] <= 0.9), "segment"] = "B"
 
         # 🔥 liczba SKU w segmentach
         seg_counts = a["segment"].value_counts()
@@ -411,11 +413,11 @@ df_yoy = df.groupby([col_code, col_desc]).agg({
     qty_new: "sum"
 }).reset_index()
 
-df_yoy["YoY %"] = df_yoy.apply(lambda x: yoy_format(calc_yoy(x[val_new], x[val_old])), axis=1)
+df_yoy["YoY %"] = df_yoy.apply(lambda x: yoy_label(calc_yoy_clean(x[val_new], x[val_old])), axis=1)
 
 st.dataframe(add_index(
     df_yoy.sort_values(val_new, ascending=False)
-    [[col_code,col_desc,val_old,val_new,qty_old,qty_new,"YoY %"]]
+    [[col_code, col_desc, val_old, val_new, qty_old, qty_new, "YoY %"]]
 ))
 
 st.divider()
@@ -424,12 +426,12 @@ st.divider()
 st.markdown("## 🧠 Auto Insights")
 
 cat = df_context.groupby("Category Clean").agg({
-    val_old:"sum",
-    val_new:"sum"
+    val_old: "sum",
+    val_new: "sum"
 }).reset_index()
 
-cat["YoY"] = cat.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
-cat["YoY %"] = cat["YoY"].apply(yoy_format)
+cat["YoY"] = cat.apply(lambda x: calc_yoy_clean(x[val_new], x[val_old]), axis=1)
+cat["YoY %"] = cat["YoY"].apply(yoy_label)
 
 # ================= TOP 3 =================
 st.write("### Top 5 Categories")
@@ -437,14 +439,14 @@ st.write("### Top 5 Categories")
 c1, c2 = st.columns(2)
 
 with c1:
-    st.write("#### 2025")
-    top25 = cat.sort_values(val_old, ascending=False).head(5)
-    st.dataframe(add_index(top25[["Category Clean", val_old]]))
+    st.write(f"#### {val_old}")
+    top_old_cat = cat.sort_values(val_old, ascending=False).head(5)
+    st.dataframe(add_index(top_old_cat[["Category Clean", val_old]]))
 
 with c2:
-    st.write("#### 2026")
-    top26 = cat.sort_values(val_new, ascending=False).head(5)
-    st.dataframe(add_index(top26[["Category Clean", val_new, "YoY %"]]))
+    st.write(f"#### {val_new}")
+    top_new_cat = cat.sort_values(val_new, ascending=False).head(5)
+    st.dataframe(add_index(top_new_cat[["Category Clean", val_new, "YoY %"]]))
 
 # ================= GROWTH =================
 st.write("### Growth (L4L)")
@@ -484,25 +486,6 @@ selected_brand_impact = st.selectbox(
     "Select Brand (License)",
     ["All Brands"] + all_brands
 )
-
-# ================= FUNCTIONS =================
-def calc_yoy_clean(new, old):
-    if old < 0 and new == 0:
-        return None
-
-    if pd.isna(old) or old == 0:
-        return 100 if new > 0 else 0
-    elif old > 0 and new == 0:
-        return -100
-    else:
-        return (new - old) / abs(old) * 100
-
-
-def yoy_label(val, special):
-    if special:
-        return "Recovery to 0 ⚠️"
-    return yoy_format(val)
-
 
 # ================= DATA PREP =================
 df_impact = df_original_all.copy()
