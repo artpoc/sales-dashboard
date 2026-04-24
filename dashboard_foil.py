@@ -18,6 +18,21 @@ mode = st.radio(
     ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
 )
 
+    # ================= LOAD MODE =================
+    if mode == "L4L (2025 vs 2026)":
+        file = file_l4l
+        is_l4l = True
+    else:
+        file = file_full
+        is_l4l = False
+
+    if file is None:
+        st.warning("⬆️ Upload file for selected mode")
+        st.stop()
+
+    df = pd.read_excel(file, decimal=",", thousands=" ")
+    df.columns = df.columns.str.strip()
+
 # ================= HELPERS =================
 def calc_yoy(new, old):
     if pd.isna(old) or old == 0:
@@ -57,18 +72,6 @@ def normalize_category(x):
     if "article" in x: return "Articles"
     return "Other"
 
-def add_index(df):
-    df = df.reset_index(drop=True)
-    df.index = df.index + 1
-    return df
-
-    if is_l4l:
-        df = pd.read_excel(file_l4l, decimal=",", thousands=" ")
-    else:
-        df = pd.read_excel(file_full, decimal=",", thousands=" ")
-
-    df.columns = df.columns.str.strip()
-
     # ================= MAIN =================
      if is_l4l:
         if not file_l4l:
@@ -85,13 +88,6 @@ def add_index(df):
         st.warning("⬆️ Upload plik dla wybranego trybu")
         st.stop()
 
-    df = pd.read_excel(file, decimal=",", thousands=" ")
-    df.columns = df.columns.str.strip()
-
-    # 🔥 KLUCZOWY FIX
-    df = pd.read_excel(file, decimal=",", thousands=" ")
-    df.columns = df.columns.str.strip()
-
     col_customer = "Customer Name"
     col_country = "Country"
     col_vat = "Vat ID Nr."
@@ -100,17 +96,17 @@ def add_index(df):
     col_brand = "Brand Name"
     col_cat = "Category"
 
-    def detect_columns(df):
+    def detect_columns(df, is_l4l):
         net = sorted([c for c in df.columns if "Net Value" in c])
         qty = sorted([c for c in df.columns if "Quantity" in c])
 
         if is_l4l:
             return net[0], net[1], qty[0], qty[1]
         else:
-            return net[1], net[1], qty[1], qty[1]  # FULL YEAR = tylko NOWY ROK
+            return net[0], net[1], qty[0], qty[1]
 
 
-    val_old, val_new, qty_old, qty_new = detect_columns(df)
+        val_old, val_new, qty_old, qty_new = detect_columns(df, is_l4l)
 
     # ✅ BEZPIECZNA KONWERSJA
     for c in [val_old, val_new, qty_old, qty_new]:
@@ -141,10 +137,6 @@ def add_index(df):
     df_original_all = df.copy()
     df_context = df_original_all.copy()
 
-    if not is_l4l:
-        df_analysis = df_original_all.copy()
-    else:
-        df_analysis = df.copy()
 
 
     # ================= CUSTOMER FILTER =================
