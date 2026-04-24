@@ -99,11 +99,17 @@ if len(df.columns) < 11:
     st.error("🚨 Brak wymaganych kolumn w pliku. Oczekiwano kolumn od A do K (min. 11 kolumn).")
     st.stop()
 
+df = pd.read_excel(file)
+
+df.columns = df.columns.str.strip()
+
+# kolumny dynamiczne
 val_old = df.columns[7]
 qty_old = df.columns[8]
 val_new = df.columns[9]
 qty_new = df.columns[10]
 
+# clean numbers
 for c in [val_old, val_new]:
     df[c] = df[c].apply(clean_number)
 
@@ -398,7 +404,7 @@ tab1, tab2 = st.tabs([val_old, val_new])
 
 for year, val in zip([tab1, tab2], [val_old, val_new]):
     with year:
-        a = df.groupby([col_code, col_desc]).agg({
+        a = df.groupby(col_code).agg({
             val_old:"sum",
             val_new:"sum"
         }).reset_index()
@@ -427,7 +433,7 @@ st.divider()
 # ================= YOY =================
 st.markdown("## 📈 L4L Analysis")
 
-df_yoy = df.groupby([col_code, col_desc]).agg({
+df_yoy = df.groupby(col_code).agg({
     val_old: "sum",
     val_new: "sum",
     qty_old: "sum",
