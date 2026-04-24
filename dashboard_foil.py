@@ -103,8 +103,6 @@ if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
     if selected_country != "All Countries":
         df = df[df[col_country] == selected_country]
 
-    # 🔥 ZAPIS PEŁNYCH DANYCH
-    df_original_all = df.copy()
 
     # ================= CATEGORY FILTER =================
     ALLOWED_CATEGORIES = [
@@ -113,8 +111,14 @@ if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
         "Invitations","Articles","Masks","Pinata","Plastic Cups"
     ]
 
+    # CATEGORY CLEAN (MUSI BYĆ WCZEŚNIEJ)
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
+
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
+
+    # DOPIERO TERAZ ZAPIS PEŁNEGO DATASETU
+    df_original_all = df.copy()
+    df_context = df.copy()
 
 
     # ================= CUSTOMER FILTER =================
@@ -179,8 +183,12 @@ if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
         }).reset_index()
 
         # 🔥 SHARE %
-        total25 = cat_perf[val_old].sum()
-        total26 = cat_perf[val_new].sum()
+    total25 = cat_perf[val_old].sum()
+    total26 = cat_perf[val_new].sum()
+
+    if total25 == 0 or total26 == 0:
+        st.warning("No data for category performance")
+        st.stop()
 
         cat_perf["Share 2025 %"] = cat_perf[val_old] / total25 * 100
         cat_perf["Share 2026 %"] = cat_perf[val_new] / total26 * 100
