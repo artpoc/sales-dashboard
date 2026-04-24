@@ -10,21 +10,15 @@ def add_index(df):
     return df
 
 def to_decimal(x):
-    """
-    Konwertuje wartość z excela na Decimal zachowując dokładność:
-    - float/int -> Decimal(str(x)) aby zachować pełną reprezentację liczbową
-    - string -> zamiana spacji i przecinków, potem Decimal
-    - NaN -> Decimal('0')
-    """
     if pd.isna(x):
         return Decimal('0')
     if isinstance(x, Decimal):
         return x
     try:
-        if isinstance(x, (int,)):
+        # ints -> Decimal directly, floats -> Decimal(str(x)) to preserve displayed value
+        if isinstance(x, int):
             return Decimal(x)
         if isinstance(x, float):
-            # konwersja przez str aby zachować widoczną wartość
             return Decimal(str(x))
         s = str(x).strip()
         s = s.replace(" ", "")
@@ -39,7 +33,6 @@ def decimal_sum(series):
     try:
         return sum(series.tolist(), Decimal('0'))
     except Exception:
-        # fallback
         return Decimal(str(series.sum()))
 
 def calc_yoy_clean(new, old):
@@ -92,7 +85,6 @@ def normalize_category(x):
     return "Other"
 
 def format_no_decimals(d):
-    """Format Decimal as integer string with thousands separator, no decimals."""
     if not isinstance(d, Decimal):
         try:
             d = Decimal(str(d))
@@ -102,12 +94,11 @@ def format_no_decimals(d):
     return f"{int(q):,}"
 
 def sort_by_newest(df, newest_col):
-    """Sort dataframe descending by newest_col if present."""
     if newest_col in df.columns:
         try:
+            # For Decimal objects pandas can sort them directly if dtype object
             return df.sort_values(by=newest_col, ascending=False)
         except Exception:
-            # fallback: convert to float for sorting
             df_tmp = df.copy()
             df_tmp[newest_col] = df_tmp[newest_col].apply(lambda x: float(x) if isinstance(x, Decimal) else float(Decimal(str(x))))
             return df_tmp.sort_values(by=newest_col, ascending=False)
@@ -119,18 +110,12 @@ st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
 # ================= FILE UPLOAD =================
 col1, col2 = st.columns(2)
-
 with col1:
     file_l4l = st.file_uploader("📂 Upload L4L (2025 vs 2026)", type=["xlsx"])
-
 with col2:
     file_full = st.file_uploader("📂 Upload Full Year (2024 vs 2025)", type=["xlsx"])
 
-mode = st.radio(
-    "Select Analysis Mode",
-    ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
-)
-
+mode = st.radio("Select Analysis Mode", ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"])
 file = file_l4l if mode == "L4L (2025 vs 2026)" else file_full
 
 if file is None:
@@ -138,7 +123,6 @@ if file is None:
     st.stop()
 
 # ================= LOAD ONCE =================
-# Wczytujemy raz, pozwalamy pandas odczytać typy, potem konwertujemy wybrane kolumny na Decimal
 df_raw = pd.read_excel(file, engine='openpyxl')
 df_raw.columns = df_raw.columns.str.strip()
 
@@ -146,13 +130,13 @@ if len(df_raw.columns) < 11:
     st.error("🚨 Brak wymaganych kolumn w pliku. Oczekiwano kolumn od A do K (min. 11 kolumn).")
     st.stop()
 
-# dynamiczne kolumny (H..K -> indeksy 7..10)
+# dynamic columns H..K -> indices 7..10
 val_old = df_raw.columns[7]
 qty_old = df_raw.columns[8]
 val_new = df_raw.columns[9]
 qty_new = df_raw.columns[10]
 
-# stałe nazwy kolumn
+# fixed column names expected in file
 col_customer = "Customer Name"
 col_country = "Country"
 col_vat = "Vat ID Nr."
@@ -161,27 +145,29 @@ col_desc = "Article description"
 col_brand = "Brand Name"
 col_cat = "Category"
 
-# kopiujemy df do dalszej pracy
+# Work on a copy
 df = df_raw.copy()
 
-# ================= CONVERT NUMERIC COLUMNS TO DECIMAL =================
+# Convert numeric columns to Decimal (preserve exact values)
 for c in [val_old, val_new, qty_old, qty_new]:
     if c in df.columns:
         df[c] = df[c].apply(to_decimal)
     else:
         df[c] = Decimal('0')
 
-# ensure text columns exist and are strings
+# Ensure text columns exist and are strings
 for c in [col_customer, col_country, col_vat, col_code, col_desc, col_brand, col_cat]:
     if c in df.columns:
         df[c] = df[c].astype(str).fillna("").replace("nan", "")
     else:
         df[c] = ""
 
+# IMPORTANT: keep a copy of the dataset BEFORE category filtering so KPI totals match Excel totals
+df_original_all = df.copy()
+
 # ================= COUNTRY FILTER =================
 countries = ["All Countries"] + sorted(df[col_country].replace("", pd.NA).dropna().unique())
 selected_country = st.selectbox("🌍 Select Country", countries)
-
 if selected_country != "All Countries":
     df = df[df[col_country] == selected_country]
 
@@ -195,16 +181,18 @@ ALLOWED_CATEGORIES = [
 df["Category Clean"] = df[col_cat].apply(lambda x: normalize_category(x))
 df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
 
-df_original_all = df.copy()
+# Keep a context copy for category-agnostic analyses (but preserve original_all for raw totals)
+df_after_category = df.copy()
 
 # ================= CUSTOMER FILTER =================
 customers = ["All Customers"] + sorted(df[col_customer].replace("", pd.NA).dropna().unique())
 selected_customer = st.selectbox("👤 Select Customer", customers)
-
 if selected_customer != "All Customers":
     df = df[df[col_customer] == selected_customer]
 
-df_context = df_original_all if selected_customer == "All Customers" else df.copy()
+# df_context should reflect the dataset used for most analyses (respecting country/customer filters but not category filter when "All Categories" is selected)
+# We'll use df_after_category for category-limited views; df_context for KPI and other views should reflect current filters including category selection below.
+df_context = df_after_category.copy() if selected_customer == "All Customers" else df.copy()
 
 # ================= CUSTOMER INFO =================
 st.subheader("👤 Customer Information")
@@ -223,7 +211,6 @@ else:
 # ================= CATEGORY SELECT =================
 categories = ["All Categories"] + sorted(df["Category Clean"].dropna().unique())
 selected = st.selectbox("📂 Select Category", categories)
-
 if selected != "All Categories":
     df = df[df["Category Clean"] == selected]
 
@@ -235,10 +222,15 @@ st.divider()
 # ================= KPI =================
 st.markdown(f"## 💰 KPI (EUR / PCS)")
 
-s_old = decimal_sum(df[val_old])
-s_new = decimal_sum(df[val_new])
-q_old = decimal_sum(df[qty_old])
-q_new = decimal_sum(df[qty_new])
+# KPI sums should reflect the dataset the user expects:
+# - If user has not filtered categories/customers/countries, show totals from the original Excel (df_original_all)
+# - Otherwise show sums from the currently filtered df (after country/customer/category)
+use_df_for_kpi = df if (selected != "All Categories" or selected_customer != "All Customers" or selected_country != "All Countries") else df_original_all
+
+s_old = decimal_sum(use_df_for_kpi[val_old])
+s_new = decimal_sum(use_df_for_kpi[val_new])
+q_old = decimal_sum(use_df_for_kpi[qty_old])
+q_new = decimal_sum(use_df_for_kpi[qty_new])
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric(f"Sales {val_old}", format_no_decimals(s_old))
@@ -255,13 +247,13 @@ if selected == "All Categories":
         val_new: lambda s: decimal_sum(s)
     }).reset_index()
 
-    # sort by newest year (val_new) descending
+    # sort by newest year descending
     cat_perf = sort_by_newest(cat_perf, val_new)
 
     total_old = decimal_sum(cat_perf[val_old])
     total_new = decimal_sum(cat_perf[val_new])
 
-    if total_old == 0 or total_new == 0:
+    if total_old == 0 and total_new == 0:
         st.warning("No data for category performance")
     else:
         cat_perf[f"Share {val_old} %"] = cat_perf[val_old].apply(lambda x: (x / total_old * Decimal('100')) if total_old != 0 else Decimal('0'))
@@ -270,7 +262,6 @@ if selected == "All Categories":
         cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy_clean(x[val_new], x[val_old]), axis=1)
         cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_label)
 
-        # plotly needs numeric floats
         cat_perf_plot_old = cat_perf.copy()
         cat_perf_plot_old[val_old] = cat_perf_plot_old[val_old].apply(lambda x: float(x))
         cat_perf_plot_new = cat_perf.copy()
@@ -292,7 +283,6 @@ if selected == "All Categories":
             "YoY %"
         ]].copy()
 
-        # format numbers without decimals
         display_df[val_old] = display_df[val_old].apply(format_no_decimals)
         display_df[val_new] = display_df[val_new].apply(format_no_decimals)
         display_df[f"Share {val_old} %"] = display_df[f"Share {val_old} %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
@@ -310,7 +300,6 @@ brand = df.groupby(col_brand).agg({
     val_new: lambda s: decimal_sum(s)
 }).reset_index()
 
-# sort by newest year
 brand = sort_by_newest(brand, val_new)
 
 total_old = decimal_sum(brand[val_old])
@@ -361,7 +350,7 @@ else:
     base_df = df.copy()
     c1, c2 = st.columns(2)
 
-    # OLD YEAR
+    # OLD YEAR panel: sort by newest year (val_new) as requested
     with c1:
         st.write(f"### {val_old}")
         d_old = base_df.groupby(col_code).agg({
@@ -370,16 +359,15 @@ else:
             qty_old: lambda s: decimal_sum(s)
         }).reset_index()
 
-        # sort by newest year (val_new) - but for old-year panel we still sort by val_new to follow requirement
-        # ensure val_new exists in d_old by merging from base_df aggregated
+        # attach val_new for sorting
         d_old = d_old.merge(
             base_df.groupby(col_code).agg({val_new: lambda s: decimal_sum(s)}).reset_index(),
-            on=col_code,
-            how="left"
+            on=col_code, how="left"
         )
         d_old[val_new] = d_old[val_new].fillna(Decimal('0'))
 
         d_old = d_old[d_old[val_old] > 0]
+        # sort by newest (val_new) descending
         d_old = sort_by_newest(d_old, val_new)
 
         if d_old.empty:
@@ -391,16 +379,13 @@ else:
 
             top_old_display = top_old.copy()
             top_old_display[val_old] = top_old_display[val_old].apply(format_no_decimals)
-            top_old_display[qty_old] = top_old_display[qty_old].apply(lambda x: format_no_decimals(x))
+            top_old_display[qty_old] = top_old_display[qty_old].apply(format_no_decimals)
             top_old_display["Share %"] = top_old_display["Share %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
-            st.dataframe(add_index(
-                top_old_display[[col_code, col_desc, val_old, qty_old, "Share %"]]
-            ))
-
+            st.dataframe(add_index(top_old_display[[col_code, col_desc, val_old, qty_old, "Share %"]]))
             st.write(f"Top 10 share: {int((decimal_sum(top_old[val_old]) / total_old * Decimal('100')).quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
-    # NEW YEAR
+    # NEW YEAR panel: sort by val_new descending
     with c2:
         st.write(f"### {val_new}")
         d_new = base_df.groupby(col_code).agg({
@@ -409,7 +394,6 @@ else:
             qty_new: lambda s: decimal_sum(s)
         }).reset_index()
 
-        # ensure sorting by val_new
         d_new = d_new[d_new[val_new] > 0]
         d_new = sort_by_newest(d_new, val_new)
 
@@ -422,13 +406,10 @@ else:
 
             top_new_display = top_new.copy()
             top_new_display[val_new] = top_new_display[val_new].apply(format_no_decimals)
-            top_new_display[qty_new] = top_new_display[qty_new].apply(lambda x: format_no_decimals(x))
+            top_new_display[qty_new] = top_new_display[qty_new].apply(format_no_decimals)
             top_new_display["Share %"] = top_new_display["Share %"].apply(lambda x: f"{int(x.quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
-            st.dataframe(add_index(
-                top_new_display[[col_code, col_desc, val_new, qty_new, "Share %"]]
-            ))
-
+            st.dataframe(add_index(top_new_display[[col_code, col_desc, val_new, qty_new, "Share %"]]))
             st.write(f"Top 10 share: {int((decimal_sum(top_new[val_new]) / total_new * Decimal('100')).quantize(Decimal('1'), rounding=ROUND_HALF_UP))}%")
 
 st.divider()
@@ -437,7 +418,6 @@ st.divider()
 st.markdown("## 📊 Pareto Analysis")
 
 tab1, tab2 = st.tabs([val_old, val_new])
-
 for year, val in zip([tab1, tab2], [val_old, val_new]):
     with year:
         p = df.groupby(col_code).agg({
@@ -446,8 +426,8 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
             val: lambda s: decimal_sum(s)
         }).reset_index()
 
-        # add val_new for sorting if needed
-        if val != val_new and val_new in df.columns:
+        # attach val_new for sorting if missing
+        if val_new not in p.columns and val_new in df.columns:
             p = p.merge(df.groupby(col_code).agg({val_new: lambda s: decimal_sum(s)}).reset_index(), on=col_code, how="left")
             p[val_new] = p[val_new].fillna(Decimal('0'))
 
@@ -455,7 +435,7 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
         if p.empty:
             st.info("No sales in this period")
         else:
-            # sort by newest year (val_new) descending
+            # sort by newest year if available, otherwise by current val
             if val_new in p.columns:
                 p = sort_by_newest(p, val_new)
             else:
@@ -487,7 +467,6 @@ st.divider()
 st.markdown("## 📊 ABC Analysis")
 
 tab1, tab2 = st.tabs([val_old, val_new])
-
 for year, val in zip([tab1, tab2], [val_old, val_new]):
     with year:
         a = df.groupby(col_code).agg({
@@ -500,7 +479,7 @@ for year, val in zip([tab1, tab2], [val_old, val_new]):
         if a.empty:
             st.info("No sales in this period")
         else:
-            # sort by newest year
+            # sort by newest year for ranking, then by current val for cumulation
             a = sort_by_newest(a, val_new)
             a = a.sort_values(val, ascending=False).reset_index(drop=True)
             total_val = decimal_sum(a[val])
@@ -535,7 +514,6 @@ df_yoy = df.groupby(col_code).agg({
 
 # sort by newest year
 df_yoy = sort_by_newest(df_yoy, val_new)
-
 df_yoy["YoY %"] = df_yoy.apply(lambda x: yoy_label(calc_yoy_clean(x[val_new], x[val_old])), axis=1)
 
 df_yoy_display = df_yoy.copy()
@@ -544,9 +522,7 @@ for c in [val_old, val_new]:
 for c in [qty_old, qty_new]:
     df_yoy_display[c] = df_yoy_display[c].apply(format_no_decimals)
 
-st.dataframe(add_index(
-    df_yoy_display.sort_values(val_new, ascending=False)[[col_code, col_desc, val_old, val_new, qty_old, qty_new, "YoY %"]]
-))
+st.dataframe(add_index(df_yoy_display.sort_values(val_new, ascending=False)[[col_code, col_desc, val_old, val_new, qty_old, qty_new, "YoY %"]]))
 
 st.divider()
 
@@ -558,22 +534,18 @@ cat = df_context.groupby("Category Clean").agg({
     val_new: lambda s: decimal_sum(s)
 }).reset_index()
 
-# sort by newest year
 cat = sort_by_newest(cat, val_new)
-
 cat["YoY"] = cat.apply(lambda x: calc_yoy_clean(x[val_new], x[val_old]), axis=1)
 cat["YoY %"] = cat["YoY"].apply(yoy_label)
 
 st.write("### Top 5 Categories")
 c1, c2 = st.columns(2)
-
 with c1:
     st.write(f"#### {val_old}")
     top_old_cat = cat.sort_values(val_new, ascending=False).head(5)
     top_old_cat_display = top_old_cat.copy()
     top_old_cat_display[val_old] = top_old_cat_display[val_old].apply(format_no_decimals)
     st.dataframe(add_index(top_old_cat_display[["Category Clean", val_old]]))
-
 with c2:
     st.write(f"#### {val_new}")
     top_new_cat = cat.sort_values(val_new, ascending=False).head(5)
@@ -606,17 +578,11 @@ st.divider()
 # ================= CUSTOMER IMPACT =================
 st.markdown("## 👥 Customer Impact (Growth vs Decline)")
 
-all_categories = sorted(df_original_all["Category Clean"].dropna().unique())
-selected_cat_impact = st.selectbox(
-    "Select Category for Impact Analysis",
-    ["All Categories"] + all_categories
-)
+all_categories = sorted(df_original_all["Category Clean"].dropna().unique()) if "Category Clean" in df_original_all.columns else []
+selected_cat_impact = st.selectbox("Select Category for Impact Analysis", ["All Categories"] + all_categories)
 
-all_brands = sorted(df_original_all[col_brand].dropna().unique())
-selected_brand_impact = st.selectbox(
-    "Select Brand (License)",
-    ["All Brands"] + all_brands
-)
+all_brands = sorted(df_original_all[col_brand].dropna().unique()) if col_brand in df_original_all.columns else []
+selected_brand_impact = st.selectbox("Select Brand (License)", ["All Brands"] + all_brands)
 
 df_impact = df_original_all.copy()
 if selected_cat_impact != "All Categories":
@@ -630,7 +596,6 @@ impact = df_impact.groupby(col_customer).agg({
 }).reset_index()
 
 impact = impact[(impact[val_old] != 0) | (impact[val_new] != 0)]
-
 impact["Change Value"] = impact[val_new] - impact[val_old]
 impact["Special Case"] = ((impact[val_old] < 0) & (impact[val_new] == 0))
 impact["YoY"] = impact.apply(lambda x: calc_yoy_clean(x[val_new], x[val_old]), axis=1)
