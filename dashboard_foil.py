@@ -1,79 +1,75 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
+    import streamlit as st
+    import pandas as pd
+    import plotly.express as px
 
-st.set_page_config(layout="wide")
-st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha ")
+    st.set_page_config(layout="wide")
+    st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
-col1, col2 = st.columns(2)
+    # ================= FILE UPLOAD =================
+    col1, col2 = st.columns(2)
 
-with col1:
-    file_l4l = st.file_uploader("📂 Upload L4L (2025 vs 2026)", type=["xlsx"])
+    with col1:
+        file_l4l = st.file_uploader("📂 Upload L4L (2025 vs 2026)", type=["xlsx"])
 
-with col2:
-    file_full = st.file_uploader("📂 Upload Full Year (2024 vs 2025)", type=["xlsx"])
+    with col2:
+        file_full = st.file_uploader("📂 Upload Full Year (2024 vs 2025)", type=["xlsx"])
 
-mode = st.radio(
-    "Select Analysis Mode",
-    ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
-)
+    mode = st.radio(
+        "Select Analysis Mode",
+        ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
+    )
+
+    # ================= HELPERS =================
+    def calc_yoy(new, old):
+        if pd.isna(old) or old == 0:
+            return 100 if new > 0 else 0
+        elif pd.notna(old) and old > 0 and (pd.isna(new) or new == 0):
+            return -100
+        else:
+            return (new - old) / old * 100
 
 
-# ================= HELPERS =================
-def calc_yoy(new, old):
-    if pd.isna(old) or old == 0:
-        return 100 if new > 0 else 0
-    elif (old > 0) and (pd.isna(new) or new == 0):
-        return -100
-    else:
-        return (new - old) / old * 100
-
-def yoy_format(v):
-    if v > 0:
-        return f"+{v:.0f}% 🟢"
-    elif v < 0:
-        return f"{v:.0f}% 🔴"
-    else:
+    def yoy_format(v):
+        if v > 0:
+            return f"+{v:.0f}% 🟢"
+        elif v < 0:
+            return f"{v:.0f}% 🔴"
         return "0%"
 
-def normalize_category(x):
-    x = str(x).lower()
-    if "napkin" in x: return "Napkins"
-    if "hat" in x: return "Hats"
-    if "banner" in x: return "Banner"
-    if "straw" in x: return "Straws"
-    if "bag" in x: return "Bags"
-    if "plate" in x: return "Plates"
-    if "paper cup" in x: return "Paper Cups"
-    if "plastic cup" in x: return "Plastic Cups"
-    if "tablecover" in x: return "Tablecover"
-    if "reusable" in x: return "Reusable"
-    if "foil" in x: return "Foil"
-    if "wood" in x: return "Wooden"
-    if "candle" in x: return "Candles"
-    if "latex" in x: return "Latex"
-    if "invitation" in x: return "Invitations"
-    if "mask" in x: return "Masks"
-    if "pinata" in x: return "Pinata"
-    if "article" in x: return "Articles"
-    return "Other"
-    
-# ================= LOAD MODE =================
-if mode == "L4L (2025 vs 2026)":
-    file = file_l4l
-    is_l4l = True
-else:
-    file = file_full
-    is_l4l = False
 
-if file is None:
-    st.warning("⬆️ Upload file for selected mode")
-    st.stop()
+    def normalize_category(x):
+        x = str(x).lower()
+        if "napkin" in x: return "Napkins"
+        if "hat" in x: return "Hats"
+        if "banner" in x: return "Banner"
+        if "straw" in x: return "Straws"
+        if "bag" in x: return "Bags"
+        if "plate" in x: return "Plates"
+        if "paper cup" in x: return "Paper Cups"
+        if "plastic cup" in x: return "Plastic Cups"
+        if "tablecover" in x: return "Tablecover"
+        if "reusable" in x: return "Reusable"
+        if "foil" in x: return "Foil"
+        if "wood" in x: return "Wooden"
+        if "candle" in x: return "Candles"
+        if "latex" in x: return "Latex"
+        if "invitation" in x: return "Invitations"
+        if "mask" in x: return "Masks"
+        if "pinata" in x: return "Pinata"
+        if "article" in x: return "Articles"
+        return "Other"
 
-df = pd.read_excel(file, decimal=",", thousands=" ")
-df.columns = df.columns.str.strip()
+    # ================= LOAD =================
+    file = file_l4l if mode == "L4L (2025 vs 2026)" else file_full
 
-    # ================= MAIN =================
+    if file is None:
+        st.warning("⬆️ Upload file for selected mode")
+        st.stop()
+
+    df = pd.read_excel(file, decimal=",", thousands=" ")
+    df.columns = df.columns.str.strip()
+
+    # ================= COLUMNS =================
     col_customer = "Customer Name"
     col_country = "Country"
     col_vat = "Vat ID Nr."
@@ -82,46 +78,40 @@ df.columns = df.columns.str.strip()
     col_brand = "Brand Name"
     col_cat = "Category"
 
-
-    def detect_columns(df, is_l4l):
+    # ================= SAFE COLUMN DETECTION =================
+    def detect_columns(df):
         net = sorted([c for c in df.columns if "Net Value" in c])
         qty = sorted([c for c in df.columns if "Quantity" in c])
+
+        if len(net) < 2 or len(qty) < 2:
+            raise ValueError("Brak wymaganych kolumn Net Value / Quantity")
 
         return net[0], net[1], qty[0], qty[1]
 
 
-    val_old, val_new, qty_old, qty_new = detect_columns(df, is_l4l)
+    val_old, val_new, qty_old, qty_new = detect_columns(df)
 
-    # ✅ BEZPIECZNA KONWERSJA
     for c in [val_old, val_new, qty_old, qty_new]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
     # ================= COUNTRY FILTER =================
     countries = ["All Countries"] + sorted(df[col_country].dropna().unique())
-
     selected_country = st.selectbox("🌍 Select Country", countries)
 
     if selected_country != "All Countries":
         df = df[df[col_country] == selected_country]
 
-
-    # ================= CATEGORY FILTER =================
+    # ================= CATEGORY =================
     ALLOWED_CATEGORIES = [
         "Napkins","Hats","Banner","Straws","Bags","Plates","Paper Cups",
         "Tablecover","Reusable","Foil","Wooden","Candles","Latex",
         "Invitations","Articles","Masks","Pinata","Plastic Cups"
     ]
 
-    # CATEGORY CLEAN (MUSI BYĆ WCZEŚNIEJ)
     df["Category Clean"] = df[col_cat].fillna("").apply(normalize_category)
-
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
 
-    # DOPIERO TERAZ ZAPIS PEŁNEGO DATASETU
     df_original_all = df.copy()
-    df_context = df_original_all.copy()
-
-
 
     # ================= CUSTOMER FILTER =================
     customers = ["All Customers"] + sorted(df[col_customer].dropna().unique())
@@ -130,11 +120,7 @@ df.columns = df.columns.str.strip()
     if selected_customer != "All Customers":
         df = df[df[col_customer] == selected_customer]
 
-    # ================= DATA CONTEXT =================
-    if selected_customer == "All Customers":
-        df_context = df_original_all.copy()
-    else:
-        df_context = df.copy()
+    df_context = df_original_all if selected_customer == "All Customers" else df.copy()
 
     # ================= CUSTOMER INFO =================
     st.subheader("👤 Customer Information")
@@ -148,12 +134,9 @@ df.columns = df.columns.str.strip()
         c2.write(f"**Country:** {df[col_country].iloc[0]}")
         c3.write(f"**VAT:** {df[col_vat].iloc[0]}")
 
-    # ================= CATEGORY =================
+    # ================= CATEGORY SELECT =================
     categories = ["All Categories"] + sorted(df["Category Clean"].unique())
     selected = st.selectbox("📂 Select Category", categories)
-
-    # 🔥 KLUCZOWE – zawsze pełne dane
-    df_original = df_original_all.copy()
 
     if selected != "All Categories":
         df = df[df["Category Clean"] == selected]
@@ -166,14 +149,14 @@ df.columns = df.columns.str.strip()
     # ================= KPI =================
     st.markdown("## 💰 KPI (EUR / PCS)")
 
-    s25, s26 = df[val_old].sum(), df[val_new].sum()
-    q25, q26 = df[qty_old].sum(), df[qty_new].sum()
+    s_old, s_new = df[val_old].sum(), df[val_new].sum()
+    q_old, q_new = df[qty_old].sum(), df[qty_new].sum()
 
-    k1,k2,k3,k4 = st.columns(4)
-    k1.metric(f"Sales {val_old.split()[-1]} (€)", f"{s25:,.2f}")
-    k2.metric(f"Sales {val_new.split()[-1]} (€)", f"{s26:,.2f}", f"{calc_yoy(s26,s25):+.0f}%")
-    k3.metric("Qty 2025", f"{q25:,.0f}")
-    k4.metric("Qty 2026", f"{q26:,.0f}", f"{calc_yoy(q26,q25):+.0f}%")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(f"Sales {val_old.split()[-1]}", f"{s_old:,.2f}")
+    c2.metric(f"Sales {val_new.split()[-1]}", f"{s_new:,.2f}", f"{calc_yoy(s_new,s_old):+.0f}%")
+    c3.metric("Qty Old", f"{q_old:,.0f}")
+    c4.metric("Qty New", f"{q_new:,.0f}", f"{calc_yoy(q_new,q_old):+.0f}%")
 
     # ================= CATEGORY PERFORMANCE =================
     if selected == "All Categories":
