@@ -18,20 +18,6 @@ mode = st.radio(
     ["L4L (2025 vs 2026)", "Full Year (2024 vs 2025)"]
 )
 
-    # ================= LOAD MODE =================
-    if mode == "L4L (2025 vs 2026)":
-        file = file_l4l
-        is_l4l = True
-    else:
-        file = file_full
-        is_l4l = False
-
-    if file is None:
-        st.warning("⬆️ Upload file for selected mode")
-        st.stop()
-
-    df = pd.read_excel(file, decimal=",", thousands=" ")
-    df.columns = df.columns.str.strip()
 
 # ================= HELPERS =================
 def calc_yoy(new, old):
@@ -72,17 +58,22 @@ def normalize_category(x):
     if "article" in x: return "Articles"
     return "Other"
 
+    # ================= LOAD MODE =================
+if mode == "L4L (2025 vs 2026)":
+    file = file_l4l
+    is_l4l = True
+else:
+    file = file_full
+    is_l4l = False
+
+if file is None:
+    st.warning("⬆️ Upload file for selected mode")
+    st.stop()
+
+df = pd.read_excel(file, decimal=",", thousands=" ")
+df.columns = df.columns.str.strip()
+
     # ================= MAIN =================
-     if is_l4l:
-        if not file_l4l:
-            st.warning("Upload L4L file")
-            st.stop()
-        file = file_l4l
-    else:
-        if not file_full:
-            st.warning("Upload Full Year file")
-            st.stop()
-        file = file_full
 
     if file is None:
         st.warning("⬆️ Upload plik dla wybranego trybu")
@@ -106,7 +97,7 @@ def normalize_category(x):
             return net[0], net[1], qty[0], qty[1]
 
 
-        val_old, val_new, qty_old, qty_new = detect_columns(df, is_l4l)
+    val_old, val_new, qty_old, qty_new = detect_columns(df, is_l4l)
 
     # ✅ BEZPIECZNA KONWERSJA
     for c in [val_old, val_new, qty_old, qty_new]:
