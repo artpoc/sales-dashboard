@@ -118,7 +118,7 @@ if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
 
     # DOPIERO TERAZ ZAPIS PEŁNEGO DATASETU
     df_original_all = df.copy()
-    df_context = df.copy()
+    df_context = df_original_all.copy()
 
 
     # ================= CUSTOMER FILTER =================
@@ -183,12 +183,12 @@ if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
         }).reset_index()
 
         # 🔥 SHARE %
-    total25 = cat_perf[val_old].sum()
-    total26 = cat_perf[val_new].sum()
+        total25 = cat_perf[val_old].sum()
+        total26 = cat_perf[val_new].sum()
 
-    if total25 == 0 or total26 == 0:
-        st.warning("No data for category performance")
-        st.stop()
+        if total25 == 0 or total26 == 0:
+            st.warning("No data for category performance")
+            st.stop()
 
         cat_perf["Share 2025 %"] = cat_perf[val_old] / total25 * 100
         cat_perf["Share 2026 %"] = cat_perf[val_new] / total26 * 100
