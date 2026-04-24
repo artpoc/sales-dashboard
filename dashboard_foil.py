@@ -90,11 +90,6 @@ def clean_number(x):
     except:
         return 0
 
-for c in [val_old, val_new]:
-    df[c] = df[c].apply(clean_number)
-
-for c in [qty_old, qty_new]:
-    df[c] = df[c].apply(clean_number)
     
 df.columns = df.columns.str.strip()
 
@@ -108,6 +103,12 @@ val_old = df.columns[7]
 qty_old = df.columns[8]
 val_new = df.columns[9]
 qty_new = df.columns[10]
+
+for c in [val_old, val_new]:
+    df[c] = df[c].apply(clean_number)
+
+for c in [qty_old, qty_new]:
+    df[c] = df[c].apply(clean_number)
 
 # Konwersja na liczby z zachowaniem dokładności z Excela (wymuszone zaokrąglenie)
 for c in [val_old, val_new]:
@@ -284,73 +285,62 @@ st.markdown("## 🏆 Top Products")
 if df.empty:
     st.warning("No data available for selected filters")
 else:
+    base_df = df_context.copy()
     c1, c2 = st.columns(2)
 
-# ================= OLD YEAR =================
-with c1:
-    st.write(f"### {val_old}")
+    # ================= OLD YEAR =================
+    with c1:
+        st.write(f"### {val_old}")
 
-base_df = df_context.copy()
+        d_old = base_df.groupby(col_code).agg({
+            col_desc: "first",
+            val_old: "sum",
+            qty_old: "sum"
+        }).reset_index()
 
-d_old = base_df.groupby(col_code).agg({
-    col_desc: "first",
-    val_old: "sum",
-    qty_old: "sum"
-}).reset_index()
-
-d_old = d_old[d_old[val_old] > 0]
-d_old = d_old.sort_values(val_old, ascending=False)
-top_old = d_old.head(10)
-
-    # 🔥 tylko SKU ze sprzedażą
-    d_old = d_old[d_old[val_old] > 0]
+        d_old = d_old[d_old[val_old] > 0]
 
         if d_old.empty:
             st.info(f"No sales in {val_old}")
         else:
-            top_old = d_old.sort_values(val_old, ascending=False).head(10)
+            d_old = d_old.sort_values(val_old, ascending=False)
+            top_old = d_old.head(10)
 
             total_old = d_old[val_old].sum()
-            top_old_sum = top_old[val_old].sum()
-
-            # 🔥 udział %
             top_old["Share %"] = top_old[val_old] / total_old * 100
 
             st.dataframe(add_index(
                 top_old[[col_code, col_desc, val_old, qty_old, "Share %"]]
             ))
 
-            st.write(f"Top 10 share: {(top_old_sum/total_old*100):.1f}%")
-
+            st.write(f"Top 10 share: {(top_old[val_old].sum()/total_old*100):.1f}%")
 
     # ================= NEW YEAR =================
     with c2:
         st.write(f"### {val_new}")
 
-        d_new = df.groupby([col_code, col_desc]).agg({
+        d_new = base_df.groupby(col_code).agg({
+            col_desc: "first",
             val_new: "sum",
             qty_new: "sum"
         }).reset_index()
 
-        # 🔥 tylko SKU ze sprzedażą
         d_new = d_new[d_new[val_new] > 0]
 
         if d_new.empty:
             st.info(f"No sales in {val_new}")
         else:
-            top_new = d_new.sort_values(val_new, ascending=False).head(10)
+            d_new = d_new.sort_values(val_new, ascending=False)
+            top_new = d_new.head(10)
 
             total_new = d_new[val_new].sum()
-            top_new_sum = top_new[val_new].sum()
-
-            # 🔥 udział %
             top_new["Share %"] = top_new[val_new] / total_new * 100
 
             st.dataframe(add_index(
                 top_new[[col_code, col_desc, val_new, qty_new, "Share %"]]
             ))
 
-            st.write(f"Top 10 share: {(top_new_sum/total_new*100):.1f}%")
+            st.write(f"Top 10 share: {(top_new[val_new].sum()/total_new*100):.1f}%")
 
 st.divider()
 
