@@ -267,16 +267,6 @@ if uploaded_file:
 
                 st.write(f"Top 10 share: {(top25_sum/total25*100):.1f}%")
 
-                # 🔥 PIE – udział poszczególnych SKU
-                fig25 = px.pie(
-                    top25,
-                    names=col_desc,
-                    values=val25,
-                    title="Top 10 Products Share (2025)"
-                )
-
-                fig25.update_traces(textinfo='percent')
-                st.plotly_chart(fig25)
 
         # ================= 2026 =================
         with c2:
@@ -307,17 +297,6 @@ if uploaded_file:
 
                 st.write(f"Top 10 share: {(top26_sum/total26*100):.1f}%")
 
-                # 🔥 PIE – udział poszczególnych SKU
-                fig26 = px.pie(
-                    top26,
-                    names=col_desc,
-                    values=val26,
-                    title="Top 10 Products Share (2026)"
-                )
-
-                fig26.update_traces(textinfo='percent')
-                st.plotly_chart(fig26)
-
     st.divider()
 
     # ================= PARETO =================
@@ -328,30 +307,38 @@ if uploaded_file:
     for year, val in zip([tab1, tab2], [val25, val26]):
         with year:
 
-            # 🔥 agregacja tylko potrzebnej wartości
-            p = df.groupby([col_code, col_desc, "Category Clean"]).agg({
+            # 🔥 agregacja do poziomu SKU (unikalny Art. Nr.)
+            p = df.groupby(col_code).agg({
+                col_desc: "first",          # opis pomocniczo
+                "Category Clean": "first",  # kategoria pomocniczo
                 val: "sum"
             }).reset_index()
 
-            # 🔥 KLUCZOWE: usuwamy SKU bez sprzedaży w danym roku
+            # 🔥 tylko SKU ze sprzedażą w danym roku
             p = p[p[val] > 0]
 
             if p.empty:
                 st.info("No sales in this year")
             else:
-                # 🔥 sortowanie
+                # 🔥 sortowanie malejąco
                 p = p.sort_values(val, ascending=False)
 
-                # 🔥 kumulacja tylko na aktywnych SKU
-                p["cum"] = p[val].cumsum() / p[val].sum()
+                # 🔥 kumulacja wartości
+                p["cum_value"] = p[val].cumsum()
+                total_value = p[val].sum()
+                p["cum_share"] = p["cum_value"] / total_value
 
-                # 🔥 80%
-                top80 = p[p["cum"] <= 0.8]
+                # 🔥 Pareto 80%
+                top80 = p[p["cum_share"] <= 0.8]
 
-                total_sku = len(p)
-                pareto_sku = len(top80)
+                # 🔥 liczba SKU
+                total_sku = p[col_code].nunique()
+                pareto_sku = top80[col_code].nunique()
 
-                st.write(f"Top SKU for 80%: {pareto_sku} / {total_sku}")
+                # 🔥 % SKU które robi 80%
+                sku_share = pareto_sku / total_sku * 100
+
+                st.write(f"Top SKU for 80%: {pareto_sku} / {total_sku} ({sku_share:.1f}% of SKU)")
 
                 st.dataframe(add_index(
                     top80[[col_code, col_desc, "Category Clean", val]]
