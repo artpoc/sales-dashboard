@@ -158,47 +158,47 @@ c2.metric(f"Sales {val_new.split()[-1]}", f"{s_new:,.2f}", f"{calc_yoy(s_new,s_o
 c3.metric("Qty Old", f"{q_old:,.0f}")
 c4.metric("Qty New", f"{q_new:,.0f}", f"{calc_yoy(q_new,q_old):+.0f}%")
 
-    # ================= CATEGORY PERFORMANCE =================
-    if selected == "All Categories":
-        st.markdown("## 📊 Category Performance")
+# ================= CATEGORY PERFORMANCE =================
+if selected == "All Categories":
+    st.markdown("## 📊 Category Performance")
 
-        cat_perf = df_context.groupby("Category Clean").agg({
-            val_old: "sum",
-            val_new: "sum"
-        }).reset_index()
+    cat_perf = df_context.groupby("Category Clean").agg({
+         val_old: "sum",
+         val_new: "sum"
+     }).reset_index()
 
-        total25 = cat_perf[val_old].sum()
-        total26 = cat_perf[val_new].sum()
+     total25 = cat_perf[val_old].sum()
+     total26 = cat_perf[val_new].sum()
 
-        if total25 == 0 or total26 == 0:
-            st.warning("No data for category performance")
-        else:
-            cat_perf["Share 2025 %"] = cat_perf[val_old] / total25 * 100
-            cat_perf["Share 2026 %"] = cat_perf[val_new] / total26 * 100
+    if total25 == 0 or total26 == 0:
+           st.warning("No data for category performance")
+     else:
+         cat_perf["Share 2025 %"] = cat_perf[val_old] / total25 * 100
+         cat_perf["Share 2026 %"] = cat_perf[val_new] / total26 * 100
 
-            cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
-            cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
+        cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
+        cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
 
-            cat_perf["Share 2025 %"] = cat_perf["Share 2025 %"].map(lambda x: f"{x:.1f}%")
-            cat_perf["Share 2026 %"] = cat_perf["Share 2026 %"].map(lambda x: f"{x:.1f}%")
+        cat_perf["Share 2025 %"] = cat_perf["Share 2025 %"].map(lambda x: f"{x:.1f}%")
+        cat_perf["Share 2026 %"] = cat_perf["Share 2026 %"].map(lambda x: f"{x:.1f}%")
 
-            c1, c2 = st.columns(2)
+         c1, c2 = st.columns(2)
 
-            with c1:
-                st.markdown("### 2025")
-                st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_old))
+         with c1:
+             st.markdown("### 2025")
+             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_old))
 
-            with c2:
-                st.markdown("### 2026")
-                st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_new))
+         with c2:
+             st.markdown("### 2026")
+             st.plotly_chart(px.pie(cat_perf, names="Category Clean", values=val_new))
 
-            st.markdown("### Category Comparison")
-            st.dataframe(add_index(
-                cat_perf.sort_values(val_new, ascending=False)[[
-                    "Category Clean",
-                    val_old, "Share 2025 %",
-                    val_new, "Share 2026 %",
-                    "YoY %"
+        st.markdown("### Category Comparison")
+        st.dataframe(add_index(
+             cat_perf.sort_values(val_new, ascending=False)[[
+                  "Category Clean",
+                val_old, "Share 2025 %",
+                 val_new, "Share 2026 %",
+                 "YoY %"
                 ]]
             ))
 
