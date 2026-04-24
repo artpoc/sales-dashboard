@@ -59,25 +59,21 @@ def normalize_category(x):
     return "Other"
 
     # ================= LOAD MODE =================
-if mode == "L4L (2025 vs 2026)":
-    file = file_l4l
-    is_l4l = True
-else:
-    file = file_full
-    is_l4l = False
-
-if file is None:
-    st.warning("⬆️ Upload file for selected mode")
-    st.stop()
-
-df = pd.read_excel(file, decimal=",", thousands=" ")
-df.columns = df.columns.str.strip()
-
-    # ================= MAIN =================
+    if mode == "L4L (2025 vs 2026)":
+        file = file_l4l
+        is_l4l = True
+    else:
+        file = file_full
+        is_l4l = False
 
     if file is None:
-        st.warning("⬆️ Upload plik dla wybranego trybu")
+        st.warning("⬆️ Upload file for selected mode")
         st.stop()
+
+    df = pd.read_excel(file, decimal=",", thousands=" ")
+    df.columns = df.columns.str.strip()
+
+    # ================= MAIN =================
 
     col_customer = "Customer Name"
     col_country = "Country"
