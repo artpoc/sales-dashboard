@@ -205,48 +205,48 @@ if selected == "All Categories":
     st.divider()
 
 # ================= BRAND PERFORMANCE =================
-    st.markdown("## 🏷️ Brand Performance")
+st.markdown("## 🏷️ Brand Performance")
 
-    brand = df.groupby(col_brand).agg({
-        val_old: "sum",
-        val_new: "sum"
-    }).reset_index()
+brand = df.groupby(col_brand).agg({
+    val_old: "sum",
+    val_new: "sum"
+}).reset_index()
 
-    # 🔥 SHARE %
-    total25 = brand[val_old].sum()
-    total26 = brand[val_new].sum()
+# 🔥 SHARE %
+total25 = brand[val_old].sum()
+total26 = brand[val_new].sum()
 
-    brand["Share 2025 %"] = brand[val_old] / total25 * 100
-    brand["Share 2026 %"] = brand[val_new] / total26 * 100
+brand["Share 2025 %"] = brand[val_old] / total25 * 100
+brand["Share 2026 %"] = brand[val_new] / total26 * 100
 
-    # 🔥 YoY
-    brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
-    brand["YoY %"] = brand["YoY"].apply(yoy_format)
+# 🔥 YoY
+brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val_new], x[val_old]), axis=1)
+brand["YoY %"] = brand["YoY"].apply(yoy_format)
 
-    # 🔥 format %
-    brand["Share 2025 %"] = brand["Share 2025 %"].map(lambda x: f"{x:.1f}%")
-    brand["Share 2026 %"] = brand["Share 2026 %"].map(lambda x: f"{x:.1f}%")
+# 🔥 format %
+brand["Share 2025 %"] = brand["Share 2025 %"].map(lambda x: f"{x:.1f}%")
+brand["Share 2026 %"] = brand["Share 2026 %"].map(lambda x: f"{x:.1f}%")
 
-    c1,c2 = st.columns(2)
+c1,c2 = st.columns(2)
 
-    with c1:
-        st.markdown("### 2025")
-        st.plotly_chart(px.pie(brand, names=col_brand, values=val_old))
+with c1:
+    st.markdown("### 2025")
+    st.plotly_chart(px.pie(brand, names=col_brand, values=val_old))
 
-    with c2:
-        st.markdown("### 2026")
-        st.plotly_chart(px.pie(brand, names=col_brand, values=val_new))
+with c2:
+    st.markdown("### 2026")
+    st.plotly_chart(px.pie(brand, names=col_brand, values=val_new))
 
-    st.dataframe(add_index(
-        brand[[
-            col_brand,
-            val_old, "Share 2025 %",
-            val_new, "Share 2026 %",
-            "YoY %"
-        ]].sort_values(val_new, ascending=False)
-    ))
+st.dataframe(add_index(
+    brand[[
+        col_brand,
+        val_old, "Share 2025 %",
+        val_new, "Share 2026 %",
+        "YoY %"
+    ]].sort_values(val_new, ascending=False)
+))
 
-    st.divider()
+st.divider()
 
     # ================= TOP PRODUCTS =================
     st.markdown("## 🏆 Top Products")
