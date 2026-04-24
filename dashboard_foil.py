@@ -286,24 +286,24 @@ if df.empty:
 else:
     c1, c2 = st.columns(2)
 
-    # ================= OLD YEAR =================
-    with c1:
-        st.write(f"### {val_old}")
+# ================= OLD YEAR =================
+with c1:
+    st.write(f"### {val_old}")
 
-    base_df = df_context.copy()
+base_df = df_context.copy()
 
-    d_old = base_df.groupby(col_code).agg({
-        col_desc: "first",
-        val_old: "sum",
-        qty_old: "sum"
-    }).reset_index()
+d_old = base_df.groupby(col_code).agg({
+    col_desc: "first",
+    val_old: "sum",
+    qty_old: "sum"
+}).reset_index()
 
+d_old = d_old[d_old[val_old] > 0]
+d_old = d_old.sort_values(val_old, ascending=False)
+top_old = d_old.head(10)
+
+    # 🔥 tylko SKU ze sprzedażą
     d_old = d_old[d_old[val_old] > 0]
-    d_old = d_old.sort_values(val_old, ascending=False)
-    top_old = d_old.head(10)
-
-        # 🔥 tylko SKU ze sprzedażą
-        d_old = d_old[d_old[val_old] > 0]
 
         if d_old.empty:
             st.info(f"No sales in {val_old}")
