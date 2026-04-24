@@ -197,46 +197,72 @@ if uploaded_file:
     # ================= TOP PRODUCTS =================
     st.markdown("## 🏆 Top Products")
 
-    c1,c2 = st.columns(2)
+    if df.empty:
+        st.warning("No data available for selected filters")
+    else:
+        c1, c2 = st.columns(2)
 
-    with c1:
-        st.markdown("### 2025")
-        d25 = df.groupby([col_code, col_desc]).agg({
-            val25: "sum",
-            qty25: "sum"
-        }).reset_index().sort_values(val25, ascending=False).head(10)
+        # ================= 2025 =================
+        with c1:
+            st.write("### 2025")
 
-        total25 = df[val25].sum()
-        top10_sum25 = d25[val25].sum()
-        share25 = (top10_sum25 / total25 * 100) if total25 > 0 else 0
+            d25 = df.groupby([col_code, col_desc]).agg({
+                val25: "sum",
+                qty25: "sum"
+            }).reset_index()
 
-        st.dataframe(add_index(d25))
+            d25 = d25[d25[val25] > 0]
 
-        pie25 = d25.copy()
-        pie25.loc[len(pie25)] = ["Other", "Other", total25 - top10_sum25, 0]
+            if d25.empty:
+                st.info("No sales in 2025")
+            else:
+                top25 = d25.sort_values(val25, ascending=False).head(10)
+                st.dataframe(add_index(top25[[col_code, col_desc, val25, qty25]]))
 
-        st.plotly_chart(px.pie(pie25, names=col_desc, values=val25))
-        st.info(f"Top 10 share: {share25:.1f}% of total 2025 sales")
+                total25 = d25[val25].sum()
+                top25_sum = top25[val25].sum()
 
-    with c2:
-        st.markdown("### 2026")
-        d26 = df.groupby([col_code, col_desc]).agg({
-            val26: "sum",
-            qty26: "sum"
-        }).reset_index().sort_values(val26, ascending=False).head(10)
+                st.write(f"Top 10 share: {(top25_sum/total25*100):.1f}%")
 
-        total26 = df[val26].sum()
-        top10_sum26 = d26[val26].sum()
-        share26 = (top10_sum26 / total26 * 100) if total26 > 0 else 0
+                st.plotly_chart(px.pie(
+                    pd.DataFrame({
+                        "Group": ["Top 10", "Others"],
+                        "Value": [top25_sum, total25 - top25_sum]
+                    }),
+                    names="Group",
+                    values="Value"
+                ))
 
-        st.dataframe(add_index(d26))
+        # ================= 2026 =================
+        with c2:
+            st.write("### 2026")
 
-        pie26 = d26.copy()
-        pie26.loc[len(pie26)] = ["Other", "Other", total26 - top10_sum26, 0]
+            d26 = df.groupby([col_code, col_desc]).agg({
+                val26: "sum",
+                qty26: "sum"
+            }).reset_index()
 
-        st.plotly_chart(px.pie(pie26, names=col_desc, values=val26))
-        
-        st.info(f"Top 10 share: {share26:.1f}% of total 2026 sales")
+            d26 = d26[d26[val26] > 0]
+
+            if d26.empty:
+                st.info("No sales in 2026")
+            else:
+                top26 = d26.sort_values(val26, ascending=False).head(10)
+                st.dataframe(add_index(top26[[col_code, col_desc, val26, qty26]]))
+
+                total26 = d26[val26].sum()
+                top26_sum = top26[val26].sum()
+
+                st.write(f"Top 10 share: {(top26_sum/total26*100):.1f}%")
+
+                st.plotly_chart(px.pie(
+                    pd.DataFrame({
+                        "Group": ["Top 10", "Others"],
+                        "Value": [top26_sum, total26 - top26_sum]
+                    }),
+                    names="Group",
+                    values="Value"
+                ))
 
     st.divider()
 
@@ -330,24 +356,24 @@ if uploaded_file:
     cat["YoY %"] = cat["YoY"].apply(yoy_format)
 
     # ================= TOP 3 =================
-    st.write("### Top 3 Categories")
+    st.write("### Top 5 Categories")
 
     c1, c2 = st.columns(2)
 
     with c1:
         st.write("#### 2025")
-        top25 = cat.sort_values(val25, ascending=False).head(3)
+        top25 = cat.sort_values(val25, ascending=False).head(5)
         st.dataframe(add_index(top25[["Category Clean", val25]]))
 
     with c2:
         st.write("#### 2026")
-        top26 = cat.sort_values(val26, ascending=False).head(3)
+        top26 = cat.sort_values(val26, ascending=False).head(5)
         st.dataframe(add_index(top26[["Category Clean", val26, "YoY %"]]))
 
     # ================= GROWTH =================
-    st.write("### Growth (YoY)")
+    st.write("### Growth (L4L)")
 
-    growth = cat[cat["YoY"] > 0].sort_values("YoY", ascending=False).head(3)
+    growth = cat[cat["YoY"] > 0].sort_values("YoY", ascending=False).head(5)
 
     if growth.empty:
         st.info("There is no growth in categories")
@@ -357,7 +383,7 @@ if uploaded_file:
     # ================= RISK =================
     st.write("### Risk")
 
-    risk = cat[cat["YoY"] < 0].sort_values("YoY").head(3)
+    risk = cat[cat["YoY"] < 0].sort_values("YoY").head(5)
 
     if risk.empty:
         st.success("There is no risk in categories")
