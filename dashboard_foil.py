@@ -81,6 +81,13 @@ if file is None:
     st.warning("⬆️ Upload file for selected mode")
     st.stop()
 
+# 👉 NAJPIERW wczytanie
+df = pd.read_excel(file)
+
+# 👉 POTEM operacje na df
+df.columns = df.columns.str.strip()
+
+# ================= CLEAN =================
 def clean_number(x):
     if pd.isna(x):
         return 0
@@ -90,11 +97,12 @@ def clean_number(x):
     except:
         return 0
 
-    
-df.columns = df.columns.str.strip()
-
 # ================= SAFE COLUMN DETECTION (DYNAMIC INDEX) =================
 # Oczekujemy, że kolumny to odpowiednio: H(7), I(8), J(9), K(10)
+
+df = pd.read_excel(file)
+df.columns = df.columns.str.strip()
+
 if len(df.columns) < 11:
     st.error("🚨 Brak wymaganych kolumn w pliku. Oczekiwano kolumn od A do K (min. 11 kolumn).")
     st.stop()
