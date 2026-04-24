@@ -69,9 +69,24 @@ def add_index(df):
 
     df.columns = df.columns.str.strip()
 
-# ================= MAIN =================
-if (mode == "L4L (2025 vs 2026)" and file_l4l) or \
-   (mode == "Full Year (2024 vs 2025)" and file_full):
+    # ================= MAIN =================
+     if is_l4l:
+        if not file_l4l:
+            st.warning("Upload L4L file")
+            st.stop()
+        file = file_l4l
+    else:
+        if not file_full:
+            st.warning("Upload Full Year file")
+            st.stop()
+        file = file_full
+
+    if file is None:
+        st.warning("⬆️ Upload plik dla wybranego trybu")
+        st.stop()
+
+    df = pd.read_excel(file, decimal=",", thousands=" ")
+    df.columns = df.columns.str.strip()
 
     # 🔥 KLUCZOWY FIX
     df = pd.read_excel(file, decimal=",", thousands=" ")
