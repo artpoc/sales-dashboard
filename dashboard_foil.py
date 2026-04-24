@@ -144,21 +144,25 @@ if uploaded_file:
     if selected == "All Categories":
         st.markdown("## 📊 Category Performance")
 
-    cat_perf = df_context.groupby("Category Clean").agg({
-        val25: "sum",
-        val26: "sum"
-    }).reset_index()
+        cat_perf = df_context.groupby("Category Clean").agg({
+            val25: "sum",
+            val26: "sum"
+        }).reset_index()
 
-    # 🔥 TOTAL
-    total25 = cat_perf[val25].sum()
-    total26 = cat_perf[val26].sum()
+        # 🔥 SHARE %
+        total25 = cat_perf[val25].sum()
+        total26 = cat_perf[val26].sum()
 
-    # 🔥 SHARE %
-    cat_perf["Share 2025 %"] = cat_perf[val25] / total25 * 100
-    cat_perf["Share 2026 %"] = cat_perf[val26] / total26 * 100
+        cat_perf["Share 2025 %"] = cat_perf[val25] / total25 * 100
+        cat_perf["Share 2026 %"] = cat_perf[val26] / total26 * 100
 
+        # 🔥 YoY
         cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
         cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
+
+        # 🔥 format %
+        cat_perf["Share 2025 %"] = cat_perf["Share 2025 %"].map(lambda x: f"{x:.1f}%")
+        cat_perf["Share 2026 %"] = cat_perf["Share 2026 %"].map(lambda x: f"{x:.1f}%")
 
         c1,c2 = st.columns(2)
 
@@ -172,13 +176,12 @@ if uploaded_file:
 
         st.markdown("### Category Comparison")
         st.dataframe(add_index(
-                cat_perf[[
-        "Category Clean",
-        val25, "Share 2025 %",
-        val26, "Share 2026 %",
-        "YoY %"
-    ]]
-            .sort_values(val26, ascending=False)
+            cat_perf[[
+                "Category Clean",
+                val25, "Share 2025 %",
+                val26, "Share 2026 %",
+                "YoY %"
+            ]].sort_values(val26, ascending=False)
         ))
 
     st.divider()
@@ -186,20 +189,25 @@ if uploaded_file:
     # ================= BRAND PERFORMANCE =================
     st.markdown("## 🏷️ Brand Performance")
 
-       brand = df.groupby(col_brand).agg({
-        val25:"sum",
-        val26:"sum"
+    brand = df.groupby(col_brand).agg({
+        val25: "sum",
+        val26: "sum"
     }).reset_index()
 
-    # 🔥 TOTAL
+    # 🔥 SHARE %
     total25 = brand[val25].sum()
     total26 = brand[val26].sum()
 
-    # 🔥 SHARE %
     brand["Share 2025 %"] = brand[val25] / total25 * 100
     brand["Share 2026 %"] = brand[val26] / total26 * 100
+
+    # 🔥 YoY
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     brand["YoY %"] = brand["YoY"].apply(yoy_format)
+
+    # 🔥 format %
+    brand["Share 2025 %"] = brand["Share 2025 %"].map(lambda x: f"{x:.1f}%")
+    brand["Share 2026 %"] = brand["Share 2026 %"].map(lambda x: f"{x:.1f}%")
 
     c1,c2 = st.columns(2)
 
@@ -212,13 +220,12 @@ if uploaded_file:
         st.plotly_chart(px.pie(brand, names=col_brand, values=val26))
 
     st.dataframe(add_index(
-            brand[[
-        col_brand,
-        val25, "Share 2025 %",
-        val26, "Share 2026 %",
-        "YoY %"
-    ]]
-        .sort_values(val26, ascending=False)
+        brand[[
+            col_brand,
+            val25, "Share 2025 %",
+            val26, "Share 2026 %",
+            "YoY %"
+        ]].sort_values(val26, ascending=False)
     ))
 
     st.divider()
