@@ -144,10 +144,18 @@ if uploaded_file:
     if selected == "All Categories":
         st.markdown("## 📊 Category Performance")
 
-        cat_perf = df_context.groupby("Category Clean").agg({
-            val25: "sum",
-            val26: "sum"
-        }).reset_index()
+    cat_perf = df_context.groupby("Category Clean").agg({
+        val25: "sum",
+        val26: "sum"
+    }).reset_index()
+
+    # 🔥 TOTAL
+    total25 = cat_perf[val25].sum()
+    total26 = cat_perf[val26].sum()
+
+    # 🔥 SHARE %
+    cat_perf["Share 2025 %"] = cat_perf[val25] / total25 * 100
+    cat_perf["Share 2026 %"] = cat_perf[val26] / total26 * 100
 
         cat_perf["YoY"] = cat_perf.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
         cat_perf["YoY %"] = cat_perf["YoY"].apply(yoy_format)
@@ -164,7 +172,12 @@ if uploaded_file:
 
         st.markdown("### Category Comparison")
         st.dataframe(add_index(
-            cat_perf[["Category Clean", val25, val26, "YoY %"]]
+                cat_perf[[
+        "Category Clean",
+        val25, "Share 2025 %",
+        val26, "Share 2026 %",
+        "YoY %"
+    ]]
             .sort_values(val26, ascending=False)
         ))
 
@@ -173,7 +186,18 @@ if uploaded_file:
     # ================= BRAND PERFORMANCE =================
     st.markdown("## 🏷️ Brand Performance")
 
-    brand = df.groupby(col_brand).agg({val25:"sum",val26:"sum"}).reset_index()
+       brand = df.groupby(col_brand).agg({
+        val25:"sum",
+        val26:"sum"
+    }).reset_index()
+
+    # 🔥 TOTAL
+    total25 = brand[val25].sum()
+    total26 = brand[val26].sum()
+
+    # 🔥 SHARE %
+    brand["Share 2025 %"] = brand[val25] / total25 * 100
+    brand["Share 2026 %"] = brand[val26] / total26 * 100
     brand["YoY"] = brand.apply(lambda x: calc_yoy(x[val26], x[val25]), axis=1)
     brand["YoY %"] = brand["YoY"].apply(yoy_format)
 
@@ -188,7 +212,12 @@ if uploaded_file:
         st.plotly_chart(px.pie(brand, names=col_brand, values=val26))
 
     st.dataframe(add_index(
-        brand[[col_brand,val25,val26,"YoY %"]]
+            brand[[
+        col_brand,
+        val25, "Share 2025 %",
+        val26, "Share 2026 %",
+        "YoY %"
+    ]]
         .sort_values(val26, ascending=False)
     ))
 
