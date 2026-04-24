@@ -275,7 +275,7 @@ if uploaded_file:
                     title="Top 10 Products Share (2025)"
                 )
 
-                fig25.update_traces(textinfo='percent+label')
+                fig25.update_traces(textinfo='percent')
                 st.plotly_chart(fig25)
 
         # ================= 2026 =================
@@ -315,7 +315,7 @@ if uploaded_file:
                     title="Top 10 Products Share (2026)"
                 )
 
-                fig26.update_traces(textinfo='percent+label')
+                fig26.update_traces(textinfo='percent')
                 st.plotly_chart(fig26)
 
     st.divider()
