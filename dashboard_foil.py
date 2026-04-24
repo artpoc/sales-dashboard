@@ -247,27 +247,36 @@ if uploaded_file:
                 qty25: "sum"
             }).reset_index()
 
+            # 🔥 tylko SKU ze sprzedażą
             d25 = d25[d25[val25] > 0]
 
             if d25.empty:
                 st.info("No sales in 2025")
             else:
                 top25 = d25.sort_values(val25, ascending=False).head(10)
-                st.dataframe(add_index(top25[[col_code, col_desc, val25, qty25]]))
 
                 total25 = d25[val25].sum()
                 top25_sum = top25[val25].sum()
 
+                # 🔥 udział %
+                top25["Share %"] = top25[val25] / total25 * 100
+
+                st.dataframe(add_index(
+                    top25[[col_code, col_desc, val25, qty25, "Share %"]]
+                ))
+
                 st.write(f"Top 10 share: {(top25_sum/total25*100):.1f}%")
 
-                st.plotly_chart(px.pie(
-                    pd.DataFrame({
-                        "Group": ["Top 10", "Others"],
-                        "Value": [top25_sum, total25 - top25_sum]
-                    }),
-                    names="Group",
-                    values="Value"
-                ))
+                # 🔥 PIE – udział poszczególnych SKU
+                fig25 = px.pie(
+                    top25,
+                    names=col_desc,
+                    values=val25,
+                    title="Top 10 Products Share (2025)"
+                )
+
+                fig25.update_traces(textinfo='percent+label')
+                st.plotly_chart(fig25)
 
         # ================= 2026 =================
         with c2:
@@ -278,27 +287,36 @@ if uploaded_file:
                 qty26: "sum"
             }).reset_index()
 
+            # 🔥 tylko SKU ze sprzedażą
             d26 = d26[d26[val26] > 0]
 
             if d26.empty:
                 st.info("No sales in 2026")
             else:
                 top26 = d26.sort_values(val26, ascending=False).head(10)
-                st.dataframe(add_index(top26[[col_code, col_desc, val26, qty26]]))
 
                 total26 = d26[val26].sum()
                 top26_sum = top26[val26].sum()
 
+                # 🔥 udział %
+                top26["Share %"] = top26[val26] / total26 * 100
+
+                st.dataframe(add_index(
+                    top26[[col_code, col_desc, val26, qty26, "Share %"]]
+                ))
+
                 st.write(f"Top 10 share: {(top26_sum/total26*100):.1f}%")
 
-                st.plotly_chart(px.pie(
-                    pd.DataFrame({
-                        "Group": ["Top 10", "Others"],
-                        "Value": [top26_sum, total26 - top26_sum]
-                    }),
-                    names="Group",
-                    values="Value"
-                ))
+                # 🔥 PIE – udział poszczególnych SKU
+                fig26 = px.pie(
+                    top26,
+                    names=col_desc,
+                    values=val26,
+                    title="Top 10 Products Share (2026)"
+                )
+
+                fig26.update_traces(textinfo='percent+label')
+                st.plotly_chart(fig26)
 
     st.divider()
 
