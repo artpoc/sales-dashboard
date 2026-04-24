@@ -204,7 +204,7 @@ if selected == "All Categories":
 
     st.divider()
 
-    # ================= BRAND PERFORMANCE =================
+# ================= BRAND PERFORMANCE =================
     st.markdown("## 🏷️ Brand Performance")
 
     brand = df.groupby(col_brand).agg({
