@@ -4,7 +4,14 @@ import plotly.express as px
 
 # ================= HELPERS & FUNCTIONS =================
 def add_index(df):
-    return df.reset_index(drop=True)
+    df = df.reset_index(drop=True)
+    df.index = df.index + 1  # Wymuszenie numerowania od 1 zamiast od 0
+    
+    # Zabezpieczenie dokładności liczb (eliminacja błędów zmiennoprzecinkowych z Pythona)
+    for col in df.select_dtypes(include=['float64']).columns:
+        df[col] = df[col].round(2)
+        
+    return df
 
 def calc_yoy_clean(new, old):
     if old < 0 and new == 0:
@@ -88,8 +95,11 @@ qty_old = df.columns[8]
 val_new = df.columns[9]
 qty_new = df.columns[10]
 
-for c in [val_old, val_new, qty_old, qty_new]:
-    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+# Konwersja na liczby z zachowaniem dokładności z Excela (wymuszone zaokrąglenie)
+for c in [val_old, val_new]:
+    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).round(2)
+for c in [qty_old, qty_new]:
+    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).round(2)
 
 # ================= COLUMNS =================
 col_customer = "Customer Name"
@@ -480,7 +490,7 @@ selected_cat_impact = st.selectbox(
     ["All Categories"] + all_categories
 )
 
-# 🔥 NOWY: wybór brandu
+# 🔥 wybór brandu
 all_brands = sorted(df_original_all[col_brand].dropna().unique())
 selected_brand_impact = st.selectbox(
     "Select Brand (License)",
@@ -494,7 +504,7 @@ df_impact = df_original_all.copy()
 if selected_cat_impact != "All Categories":
     df_impact = df_impact[df_impact["Category Clean"] == selected_cat_impact]
 
-# 🔥 filtr brandu (NOWE)
+# 🔥 filtr brandu
 if selected_brand_impact != "All Brands":
     df_impact = df_impact[df_impact[col_brand] == selected_brand_impact]
 
