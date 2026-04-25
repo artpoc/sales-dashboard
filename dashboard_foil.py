@@ -124,14 +124,17 @@ def load_excel_as_df(file):
     return df
 
 def detect_columns_for_three_files(df):
-    # Return mapping with guaranteed keys (may point to existing columns or fallback names)
     cols = {
         "Month": None, "Customer": None, "Country": None, "Vat": None,
         "Code": None, "Desc": None, "Brand": None, "Category": None,
         "NetValue": None, "Quantity": None
     }
     if df is None:
+        # return synthetic names to avoid KeyError later
+        for k in cols:
+            cols[k] = f"__missing_{k}__"
         return cols
+
     lower_map = {col.lower(): col for col in df.columns}
     for key in lower_map:
         if "month" in key and cols["Month"] is None:
@@ -155,6 +158,7 @@ def detect_columns_for_three_files(df):
                 cols["NetValue"] = lower_map[key]
         if ("qty" in key or "quantity" in key) and cols["Quantity"] is None:
             cols["Quantity"] = lower_map[key]
+
     # Fallback: pick last two numeric-like columns if NetValue/Quantity missing
     if cols["NetValue"] is None or cols["Quantity"] is None:
         numeric_candidates = []
@@ -168,7 +172,8 @@ def detect_columns_for_three_files(df):
                 cols["NetValue"] = numeric_candidates[-2]
             if cols["Quantity"] is None:
                 cols["Quantity"] = numeric_candidates[-1]
-    # Ensure every key has a string column name (fallback to a synthetic name if missing)
+
+    # Ensure every key has a string column name (fallback to synthetic)
     for k in cols:
         if cols[k] is None:
             cols[k] = f"__missing_{k}__"
@@ -178,7 +183,7 @@ def prepare_df_for_analysis(df, cols_map):
     if df is None:
         return None
     df = df.copy()
-    # Ensure all mapped columns exist in df (create empty if missing)
+    # Ensure mapped columns exist
     for k, col in cols_map.items():
         if col not in df.columns:
             df[col] = "" if k not in ("NetValue", "Quantity") else Decimal('0')
@@ -256,11 +261,6 @@ def reset_global_filters_for_prefix(prefixes=("l4l", "full")):
 # Filter widget helper (robust)
 # =========================
 def create_and_apply_filters(df_ref, cols_map, prefix="global"):
-    """
-    Create Country / Customer / Category filters.
-    Use unique widget keys and persist selections in session_state.
-    Return filtered dataframe.
-    """
     if df_ref is None:
         return None
 
@@ -328,12 +328,12 @@ def render_dashboard(df, df_original_all, cols_map, context_name="Dataset"):
 
     # KPI
     st.markdown("## 💰 KPI (Net / Qty)")
+    # Determine whether to use original totals to match Excel (no filters)
     no_filters = (
         (st.session_state.get(f"filter_country_l4l", "All Countries") == "All Countries") and
         (st.session_state.get(f"filter_customer_l4l", "All Customers") == "All Customers") and
         (st.session_state.get(f"filter_category_l4l", "All Categories") == "All Categories")
     )
-    # If df_original_all provided and no filters, use original totals to match Excel
     use_df_for_kpi = df_original_all if df_original_all is not None and no_filters else df
 
     total_net = decimal_sum(use_df_for_kpi[net_col]) if net_col in use_df_for_kpi.columns else Decimal('0')
@@ -549,86 +549,155 @@ with tab_overview:
         })
         st.plotly_chart(px.bar(chart_df, x="Year", y="Net", text="Net", title="3-year L4L Net (YTD)"), use_container_width=True)
 
-# TAB: Like-for-Like (detailed)
+# TAB: Like-for-Like (detailed) with year selection and month range
 with tab_l4l:
     if st.session_state.main_view != "l4l":
         reset_global_filters_for_prefix(("l4l",))
         st.session_state.main_view = "l4l"
 
-    st.header("Like-for-Like (L4L) — choose months to compare")
-    if df_curr is None:
-        st.info("Upload current-year file to use L4L analysis.")
+    st.header("Like-for-Like (L4L) — choose years and months to compare")
+    # Determine available datasets (files uploaded)
+    available_years = []
+    dataset_map = {}
+    if df_curr_original is not None:
+        available_years.append("Current Year")
+        dataset_map["Current Year"] = (df_curr_original, cols_curr)
+    if df_prev_original is not None:
+        available_years.append("Previous Year")
+        dataset_map["Previous Year"] = (df_prev_original, cols_prev)
+    if df_old_original is not None:
+        available_years.append("Two Years Ago")
+        dataset_map["Two Years Ago"] = (df_old_original, cols_old)
+
+    if len(available_years) < 2:
+        st.info("Upload at least two files to compare years in L4L.")
     else:
-        # Create and apply filters (based on current-year dataset)
-        filtered_curr = create_and_apply_filters(df_curr_original, cols_curr, prefix="l4l")
-        # Months selection
-        available_months = df_curr_original[cols_curr["Month"]].dropna().unique().tolist()
-        available_months_sorted = sorted(available_months, key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99)
-        selected_months = st.multiselect("Select months to include in L4L", available_months_sorted, default=available_months_sorted)
-        if not selected_months:
-            st.info("Select at least one month.")
+        # Year selection dropdowns
+        col_a, col_b = st.columns(2)
+        with col_a:
+            left_year = st.selectbox("Select first year (A)", available_years, index=0, key="l4l_left_year")
+        with col_b:
+            # default to next available year if possible
+            default_right = available_years[1] if len(available_years) > 1 else available_years[0]
+            right_year = st.selectbox("Select second year (B)", available_years, index=available_years.index(default_right), key="l4l_right_year")
+
+        if left_year == right_year:
+            st.warning("Choose two different years to compare.")
         else:
-            curr_for_analysis = filtered_curr[filtered_curr[cols_curr["Month"]].isin(selected_months)]
-            # Apply same filters to previous and old datasets if present
-            prev_for_analysis = None
-            old_for_analysis = None
-            if df_prev_original is not None:
-                prev_for_analysis = df_prev_original[df_prev_original[cols_prev["Month"]].isin(selected_months)]
-                # apply same selections from session_state
-                sc = st.session_state
-                country_sel = sc.get("filter_country_l4l", "All Countries")
-                cust_sel = sc.get("filter_customer_l4l", "All Customers")
-                cat_sel = sc.get("filter_category_l4l", "All Categories")
-                if country_sel != "All Countries":
-                    prev_for_analysis = prev_for_analysis[prev_for_analysis[cols_prev["Country"]] == country_sel]
-                if cust_sel != "All Customers":
-                    prev_for_analysis = prev_for_analysis[prev_for_analysis[cols_prev["Customer"]] == cust_sel]
-                if cat_sel != "All Categories":
-                    prev_for_analysis = prev_for_analysis[prev_for_analysis["Category Clean"] == cat_sel]
-            if df_old_original is not None:
-                old_for_analysis = df_old_original[df_old_original[cols_old["Month"]].isin(selected_months)]
-                sc = st.session_state
-                country_sel = sc.get("filter_country_l4l", "All Countries")
-                cust_sel = sc.get("filter_customer_l4l", "All Customers")
-                cat_sel = sc.get("filter_category_l4l", "All Categories")
-                if country_sel != "All Countries":
-                    old_for_analysis = old_for_analysis[old_for_analysis[cols_old["Country"]] == country_sel]
-                if cust_sel != "All Customers":
-                    old_for_analysis = old_for_analysis[old_for_analysis[cols_old["Customer"]] == cust_sel]
-                if cat_sel != "All Categories":
-                    old_for_analysis = old_for_analysis[old_for_analysis["Category Clean"] == cat_sel]
+            # Month range selection: union of months present in both selected datasets
+            df_left, cols_left = dataset_map[left_year]
+            df_right, cols_right = dataset_map[right_year]
 
-            # Render dashboard for current-year filtered dataset
-            render_dashboard(curr_for_analysis, df_curr_original, cols_curr, context_name="Current Year (L4L)")
+            months_left = df_left[cols_left["Month"]].dropna().unique().tolist()
+            months_right = df_right[cols_right["Month"]].dropna().unique().tolist()
+            months_union = sorted(list(set(months_left) | set(months_right)), key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99)
 
-# TAB: Full Year Analysis
+            selected_months = st.multiselect("Select months to include in comparison", months_union, default=months_union)
+
+            # Global filters (apply to both datasets) — use current-year as reference for options if available, else left dataset
+            ref_df_for_filters = df_curr_original if df_curr_original is not None else df_left
+            ref_cols_for_filters = cols_curr if df_curr_original is not None else cols_left
+            filtered_ref = create_and_apply_filters(ref_df_for_filters, ref_cols_for_filters, prefix="l4l")
+
+            # Apply same filter selections to left and right datasets
+            sc = st.session_state
+            country_sel = sc.get("filter_country_l4l", "All Countries")
+            cust_sel = sc.get("filter_customer_l4l", "All Customers")
+            cat_sel = sc.get("filter_category_l4l", "All Categories")
+
+            def apply_same_filters_to(df_src, cols_map):
+                if df_src is None:
+                    return None
+                d = df_src.copy()
+                if country_sel != "All Countries":
+                    d = d[d[cols_map["Country"]] == country_sel]
+                if cust_sel != "All Customers":
+                    d = d[d[cols_map["Customer"]] == cust_sel]
+                if cat_sel != "All Categories":
+                    d = d[d["Category Clean"] == cat_sel]
+                return d
+
+            left_filtered = apply_same_filters_to(df_left, cols_left)
+            right_filtered = apply_same_filters_to(df_right, cols_right)
+
+            # Filter by selected months
+            if selected_months:
+                left_filtered = left_filtered[left_filtered[cols_left["Month"]].isin(selected_months)]
+                right_filtered = right_filtered[right_filtered[cols_right["Month"]].isin(selected_months)]
+            else:
+                st.info("Select at least one month to compare.")
+
+            # Show side-by-side KPIs and render dashboards for each selected year
+            st.markdown("### Comparison KPIs")
+            left_net = decimal_sum(left_filtered[cols_left["NetValue"]]) if left_filtered is not None else Decimal('0')
+            right_net = decimal_sum(right_filtered[cols_right["NetValue"]]) if right_filtered is not None else Decimal('0')
+
+            l1, l2 = st.columns(2)
+            l1.metric(f"{left_year} Net (selected months)", format_number_plain(left_net))
+            l2.metric(f"{right_year} Net (selected months)", format_number_plain(right_net), yoy_label(calc_yoy_clean(right_net, left_net)))
+
+            st.markdown("### Left Year Dashboard")
+            render_dashboard(left_filtered, df_left, cols_left, context_name=left_year)
+
+            st.markdown("### Right Year Dashboard")
+            render_dashboard(right_filtered, df_right, cols_right, context_name=right_year)
+
+# TAB: Full Year Analysis with year selection
 with tab_full:
     if st.session_state.main_view != "full":
         reset_global_filters_for_prefix(("full",))
         st.session_state.main_view = "full"
 
-    st.header("Full Year Analysis (Previous Year vs Two Years Ago)")
-    if df_prev is None:
-        st.info("Upload previous-year file to use Full Year analysis.")
-    else:
-        # Create filters for previous-year dataset
-        filtered_prev = create_and_apply_filters(df_prev_original, cols_prev, prefix="full")
-        render_dashboard(filtered_prev, df_prev_original, cols_prev, context_name="Previous Year (Full)")
+    st.header("Full Year Analysis — choose which year to analyze")
+    # Build list of available full-year datasets (previous and two-years-ago)
+    full_year_options = []
+    full_map = {}
+    if df_prev_original is not None:
+        full_year_options.append("Previous Year (Full)")
+        full_map["Previous Year (Full)"] = (df_prev_original, cols_prev)
+    if df_old_original is not None:
+        full_year_options.append("Two Years Ago (Full)")
+        full_map["Two Years Ago (Full)"] = (df_old_original, cols_old)
 
-        if df_old is not None:
-            st.markdown("### Compare with Two Years Ago")
-            # Apply same filters to old dataset using session_state selections for 'full'
+    if not full_year_options:
+        st.info("Upload at least one full-year file (previous year or two years ago) to use Full Year analysis.")
+    else:
+        selected_full = st.selectbox("Select full-year dataset to analyze", full_year_options, key="full_selected_year")
+        df_selected, cols_selected = full_map[selected_full]
+
+        # Global filters for full-year (separate prefix)
+        filtered_selected = create_and_apply_filters(df_selected, cols_selected, prefix="full")
+
+        # Render dashboard for selected full-year dataset
+        render_dashboard(filtered_selected, df_selected, cols_selected, context_name=selected_full)
+
+        # If both full-year datasets are present, offer side-by-side comparison
+        if len(full_year_options) == 2:
+            st.markdown("### Compare the two full-year datasets")
+            other = [o for o in full_year_options if o != selected_full][0]
+            df_other, cols_other = full_map[other]
+
+            # Apply same filters to the other dataset using session_state selections for 'full'
             sc = st.session_state
             country_sel = sc.get("filter_country_full", "All Countries")
             cust_sel = sc.get("filter_customer_full", "All Customers")
             cat_sel = sc.get("filter_category_full", "All Categories")
-            filtered_old = df_old_original.copy()
+            other_filtered = df_other.copy()
             if country_sel != "All Countries":
-                filtered_old = filtered_old[filtered_old[cols_old["Country"]] == country_sel]
+                other_filtered = other_filtered[other_filtered[cols_other["Country"]] == country_sel]
             if cust_sel != "All Customers":
-                filtered_old = filtered_old[filtered_old[cols_old["Customer"]] == cust_sel]
+                other_filtered = other_filtered[other_filtered[cols_other["Customer"]] == cust_sel]
             if cat_sel != "All Categories":
-                filtered_old = filtered_old[filtered_old["Category Clean"] == cat_sel]
-            render_dashboard(filtered_old, df_old_original, cols_old, context_name="Two Years Ago (Full)")
+                other_filtered = other_filtered[other_filtered["Category Clean"] == cat_sel]
+
+            st.markdown(f"#### Comparison: {selected_full} vs {other}")
+            net_sel = decimal_sum(filtered_selected[cols_selected["NetValue"]]) if filtered_selected is not None else Decimal('0')
+            net_other = decimal_sum(other_filtered[cols_other["NetValue"]]) if other_filtered is not None else Decimal('0')
+            c1, c2 = st.columns(2)
+            c1.metric(f"{selected_full} Net", format_number_plain(net_sel))
+            c2.metric(f"{other} Net", format_number_plain(net_other), yoy_label(calc_yoy_clean(net_sel, net_other)))
+
+            st.markdown(f"##### Dashboard for {other}")
+            render_dashboard(other_filtered, df_other, cols_other, context_name=other)
 
 # End of file
