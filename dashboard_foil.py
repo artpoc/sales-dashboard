@@ -278,29 +278,44 @@ def load_single_year_file(file, label: str):
     return df, cols, year_name
 
 
-# ================= GLOBAL FILTERS =================
-def create_and_apply_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
+# ================= FILTERS =================
+def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
+    """
+    Filtry dla jednego datasetu:
+    - Country
+    - Customer (tylko z wybranego Country)
+    - Category
+    """
     if df is None or cols is None:
         return None, None
 
     df_all = df.copy()
 
+    # Country list
     countries = ["All Countries"] + sorted(
         df_all[cols["Country"]].replace("", pd.NA).dropna().unique().tolist()
     )
-    customers = ["All Customers"] + sorted(
-        df_all[cols["Customer"]].replace("", pd.NA).dropna().unique().tolist()
-    )
-    categories = ["All Categories"] + sorted(
-        df_all["Category Clean"].dropna().unique().tolist()
-    )
 
     key_country = f"{unique_prefix}_country"
-    key_customer = f"{unique_prefix}_customer"
-    key_category = f"{unique_prefix}_category"
-
     selected_country = st.selectbox("Country", countries, key=key_country)
+
+    # Filter temp by country for customer list
+    df_for_customers = df_all.copy()
+    if selected_country != "All Countries":
+        df_for_customers = df_for_customers[df_for_customers[cols["Country"]] == selected_country]
+
+    customers = ["All Customers"] + sorted(
+        df_for_customers[cols["Customer"]].replace("", pd.NA).dropna().unique().tolist()
+    )
+
+    key_customer = f"{unique_prefix}_customer"
     selected_customer = st.selectbox("Customer", customers, key=key_customer)
+
+    # Category list (from df_for_customers)
+    categories = ["All Categories"] + sorted(
+        df_for_customers["Category Clean"].dropna().unique().tolist()
+    )
+    key_category = f"{unique_prefix}_category"
     selected_category = st.selectbox("Category", categories, key=key_category)
 
     df_filtered = df_all.copy()
@@ -311,12 +326,68 @@ def create_and_apply_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
     if selected_category != "All Categories":
         df_filtered = df_filtered[df_filtered["Category Clean"] == selected_category]
 
-    return df_filtered, {
+    meta = {
         "country": selected_country,
         "customer": selected_customer,
         "category": selected_category,
         "df_all": df_all,
     }
+    return df_filtered, meta
+
+
+def apply_shared_filters(dfs, cols, unique_prefix: str):
+    """
+    Wspólne filtry dla kilku lat w jednym widoku (Overview, Detailed L4L):
+    - Country
+    - Customer (tylko z wybranego Country)
+    - Category
+    Zwraca listę przefiltrowanych dfs w tej samej kolejności.
+    """
+    if not dfs:
+        return [], None
+
+    df_all = pd.concat(dfs, ignore_index=True)
+
+    countries = ["All Countries"] + sorted(
+        df_all[cols["Country"]].replace("", pd.NA).dropna().unique().tolist()
+    )
+    key_country = f"{unique_prefix}_country"
+    selected_country = st.selectbox("Country", countries, key=key_country)
+
+    df_for_customers = df_all.copy()
+    if selected_country != "All Countries":
+        df_for_customers = df_for_customers[df_for_customers[cols["Country"]] == selected_country]
+
+    customers = ["All Customers"] + sorted(
+        df_for_customers[cols["Customer"]].replace("", pd.NA).dropna().unique().tolist()
+    )
+    key_customer = f"{unique_prefix}_customer"
+    selected_customer = st.selectbox("Customer", customers, key=key_customer)
+
+    categories = ["All Categories"] + sorted(
+        df_for_customers["Category Clean"].dropna().unique().tolist()
+    )
+    key_category = f"{unique_prefix}_category"
+    selected_category = st.selectbox("Category", categories, key=key_category)
+
+    filtered_dfs = []
+    for df in dfs:
+        d = df.copy()
+        if selected_country != "All Countries":
+            d = d[d[cols["Country"]] == selected_country]
+        if selected_customer != "All Customers":
+            d = d[d[cols["Customer"]] == selected_customer]
+        if selected_category != "All Categories":
+            d = d[d["Category Clean"] == selected_category]
+        filtered_dfs.append(d)
+
+    meta = {
+        "country": selected_country,
+        "customer": selected_customer,
+        "category": selected_category,
+        "df_all": df_all,
+    }
+    return filtered_dfs, meta
 
 
 # ================= DASHBOARD RENDERING (TWO-YEAR L4L STYLE) =================
@@ -327,6 +398,7 @@ def render_two_year_dashboard(
     cols_old: dict,
     context_name: str,
     unique_prefix: str,
+    category_filter: str = "All Categories",
 ):
     if df_new is None or df_old is None:
         st.warning("No data for this view.")
@@ -367,75 +439,76 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # CATEGORY PERFORMANCE
-    st.markdown("### Category Performance")
+    # CATEGORY PERFORMANCE (tylko gdy nie wybrano konkretnej kategorii)
+    if category_filter == "All Categories":
+        st.markdown("### Category Performance")
 
-    cat_new = (
-        df_new.groupby("Category Clean")
-        .agg({net_new: decimal_sum})
-        .reset_index()
-        .rename(columns={net_new: f"Net {year_new}"})
-    )
-    cat_old = (
-        df_old.groupby("Category Clean")
-        .agg({net_old: decimal_sum})
-        .reset_index()
-        .rename(columns={net_old: f"Net {year_old}"})
-    )
-    cat = pd.merge(cat_new, cat_old, on="Category Clean", how="outer").fillna(
-        Decimal('0')
-    )
-
-    cat[f"YoY {year_new} vs {year_old}"] = cat.apply(
-        lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
-    )
-    cat["YoY %"] = cat[f"YoY {year_new} vs {year_old}"].apply(yoy_label)
-
-    cat = sort_by_col_desc(cat, f"Net {year_new}")
-
-    plot_cat = cat.copy()
-    plot_cat[f"Net {year_new}"] = plot_cat[f"Net {year_new}"].apply(
-        lambda v: float(safe_decimal(v))
-    )
-    plot_cat[f"Net {year_old}"] = plot_cat[f"Net {year_old}"].apply(
-        lambda v: float(safe_decimal(v))
-    )
-
-    pc1, pc2 = st.columns(2)
-    with pc1:
-        st.markdown(f"#### Category Pie {year_old}")
-        st.plotly_chart(
-            px.pie(plot_cat, names="Category Clean", values=f"Net {year_old}"),
-            use_container_width=True,
+        cat_new = (
+            df_new.groupby("Category Clean")
+            .agg({net_new: decimal_sum})
+            .reset_index()
+            .rename(columns={net_new: f"Net {year_new}"})
         )
-    with pc2:
-        st.markdown(f"#### Category Pie {year_new}")
-        st.plotly_chart(
-            px.pie(plot_cat, names="Category Clean", values=f"Net {year_new}"),
-            use_container_width=True,
+        cat_old = (
+            df_old.groupby("Category Clean")
+            .agg({net_old: decimal_sum})
+            .reset_index()
+            .rename(columns={net_old: f"Net {year_old}"})
+        )
+        cat = pd.merge(cat_new, cat_old, on="Category Clean", how="outer").fillna(
+            Decimal('0')
         )
 
-    cat_display = cat.copy()
-    cat_display[f"Net {year_old}"] = cat_display[f"Net {year_old}"].apply(
-        format_number_plain
-    )
-    cat_display[f"Net {year_new}"] = cat_display[f"Net {year_new}"].apply(
-        format_number_plain
-    )
-    st.dataframe(
-        add_index(
-            cat_display[
-                [
-                    "Category Clean",
-                    f"Net {year_old}",
-                    f"Net {year_new}",
-                    "YoY %",
+        cat[f"YoY {year_new} vs {year_old}"] = cat.apply(
+            lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
+        )
+        cat["YoY %"] = cat[f"YoY {year_new} vs {year_old}"].apply(yoy_label)
+
+        cat = sort_by_col_desc(cat, f"Net {year_new}")
+
+        plot_cat = cat.copy()
+        plot_cat[f"Net {year_new}"] = plot_cat[f"Net {year_new}"].apply(
+            lambda v: float(safe_decimal(v))
+        )
+        plot_cat[f"Net {year_old}"] = plot_cat[f"Net {year_old}"].apply(
+            lambda v: float(safe_decimal(v))
+        )
+
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            st.markdown(f"#### Category Pie {year_old}")
+            st.plotly_chart(
+                px.pie(plot_cat, names="Category Clean", values=f"Net {year_old}"),
+                use_container_width=True,
+            )
+        with pc2:
+            st.markdown(f"#### Category Pie {year_new}")
+            st.plotly_chart(
+                px.pie(plot_cat, names="Category Clean", values=f"Net {year_new}"),
+                use_container_width=True,
+            )
+
+        cat_display = cat.copy()
+        cat_display[f"Net {year_old}"] = cat_display[f"Net {year_old}"].apply(
+            format_number_plain
+        )
+        cat_display[f"Net {year_new}"] = cat_display[f"Net {year_new}"].apply(
+            format_number_plain
+        )
+        st.dataframe(
+            add_index(
+                cat_display[
+                    [
+                        "Category Clean",
+                        f"Net {year_old}",
+                        f"Net {year_new}",
+                        "YoY %",
+                    ]
                 ]
-            ]
+            )
         )
-    )
 
-    st.divider()
+        st.divider()
 
     # BRAND PERFORMANCE
     st.markdown("### Brand Performance")
@@ -522,13 +595,11 @@ def render_two_year_dashboard(
             st.write(f"#### Top 10 by Net {year_old}")
             d_old = (
                 base_old.groupby(code_col)
-                .agg(
-                    {
-                        desc_col: "first",
-                        net_old: decimal_sum,
-                        qty_old: decimal_sum,
-                    }
-                )
+                .agg({
+                    desc_col: "first",
+                    net_old: decimal_sum,
+                    qty_old: decimal_sum,
+                })
                 .reset_index()
             )
             d_old = d_old[d_old[net_old] > 0]
@@ -567,13 +638,11 @@ def render_two_year_dashboard(
             st.write(f"#### Top 10 by Net {year_new}")
             d_new = (
                 base_new.groupby(code_col)
-                .agg(
-                    {
-                        desc_col: "first",
-                        net_new: decimal_sum,
-                        qty_new: decimal_sum,
-                    }
-                )
+                .agg({
+                    desc_col: "first",
+                    net_new: decimal_sum,
+                    qty_new: decimal_sum,
+                })
                 .reset_index()
             )
             d_new = d_new[d_new[net_new] > 0]
@@ -622,13 +691,11 @@ def render_two_year_dashboard(
         with tab:
             p = (
                 df_src.groupby(code_col)
-                .agg(
-                    {
-                        desc_col: "first",
-                        "Category Clean": "first",
-                        net_col: decimal_sum,
-                    }
-                )
+                .agg({
+                    desc_col: "first",
+                    "Category Clean": "first",
+                    net_col: decimal_sum,
+                })
                 .reset_index()
             )
             p = p[p[net_col] > 0]
@@ -848,7 +915,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # CUSTOMER IMPACT (not for full-year-only mode)
+    # CUSTOMER IMPACT (nie w Full Year, ale tutaj tak)
     st.markdown("### Customer Impact (Growth vs Decline)")
 
     all_categories = sorted(
@@ -973,7 +1040,7 @@ def render_two_year_dashboard(
 
 # ================= DASHBOARD FOR SINGLE YEAR (FULL YEAR ANALYSIS) =================
 def render_single_year_dashboard(
-    df: pd.DataFrame, cols: dict, year_name: str, unique_prefix: str
+    df: pd.DataFrame, cols: dict, year_name: str, unique_prefix: str, category_filter: str
 ):
     if df is None or cols is None:
         st.warning("No data for this view.")
@@ -996,33 +1063,34 @@ def render_single_year_dashboard(
 
     st.divider()
 
-    # CATEGORY PERFORMANCE
-    st.markdown("### Category Performance")
-    cat = (
-        df.groupby("Category Clean")
-        .agg({net_col: decimal_sum})
-        .reset_index()
-        .rename(columns={net_col: f"Net {year_name}"})
-    )
-    cat = sort_by_col_desc(cat, f"Net {year_name}")
-    plot_cat = cat.copy()
-    plot_cat[f"Net {year_name}"] = plot_cat[f"Net {year_name}"].apply(
-        lambda v: float(safe_decimal(v))
-    )
+    # CATEGORY PERFORMANCE (tylko gdy All Categories)
+    if category_filter == "All Categories":
+        st.markdown("### Category Performance")
+        cat = (
+            df.groupby("Category Clean")
+            .agg({net_col: decimal_sum})
+            .reset_index()
+            .rename(columns={net_col: f"Net {year_name}"})
+        )
+        cat = sort_by_col_desc(cat, f"Net {year_name}")
+        plot_cat = cat.copy()
+        plot_cat[f"Net {year_name}"] = plot_cat[f"Net {year_name}"].apply(
+            lambda v: float(safe_decimal(v))
+        )
 
-    st.markdown(f"#### Category Pie {year_name}")
-    st.plotly_chart(
-        px.pie(plot_cat, names="Category Clean", values=f"Net {year_name}"),
-        use_container_width=True,
-    )
+        st.markdown(f"#### Category Pie {year_name}")
+        st.plotly_chart(
+            px.pie(plot_cat, names="Category Clean", values=f"Net {year_name}"),
+            use_container_width=True,
+        )
 
-    cat_disp = cat.copy()
-    cat_disp[f"Net {year_name}"] = cat_disp[f"Net {year_name}"].apply(
-        format_number_plain
-    )
-    st.dataframe(add_index(cat_disp[["Category Clean", f"Net {year_name}"]]))
+        cat_disp = cat.copy()
+        cat_disp[f"Net {year_name}"] = cat_disp[f"Net {year_name}"].apply(
+            format_number_plain
+        )
+        st.dataframe(add_index(cat_disp[["Category Clean", f"Net {year_name}"]]))
 
-    st.divider()
+        st.divider()
 
     # BRAND PERFORMANCE
     st.markdown("### Brand Performance")
@@ -1159,7 +1227,7 @@ def render_single_year_dashboard(
 
     st.divider()
 
-    # AUTO INSIGHTS (TOP 5, GROWTH, RISK) – single year: only Top 5 categories
+    # AUTO INSIGHTS (Top 5 Categories)
     st.markdown("### Auto Insights")
     cat_ins = (
         df.groupby("Category Clean")
@@ -1216,7 +1284,8 @@ tab_overview, tab_l4l, tab_full = st.tabs(
 with tab_overview:
     st.header("Overview — 3-year Like-for-Like")
 
-    if df_curr is None or df_prev is None:
+    # Do overview tylko jeśli mamy co najmniej 2 lata (prev + curr minimum)
+    if df_prev is None or df_curr is None:
         st.warning("For 3-year L4L you need at least Current Year and Previous Year files.")
     else:
         months_curr = sorted(
@@ -1305,7 +1374,10 @@ with tab_overview:
                 )
 
                 c1, c2, c3 = st.columns(3)
-                c1.metric(f"Net {year_old2}" if df_old2 else "Net older", format_number_plain(val_old2))
+                c1.metric(
+                    f"Net {year_old2}" if df_old2 else "Net older",
+                    format_number_plain(val_old2),
+                )
                 c2.metric(
                     f"Net {year_prev}",
                     format_number_plain(val_prev),
@@ -1344,21 +1416,26 @@ with tab_overview:
 
                 st.divider()
 
-                # Filters for overview (shared across 3 years)
+                # Wspólne filtry dla Overview (dla wszystkich lat)
                 st.markdown("### Global Filters (Overview)")
-                df_curr_f, f_curr = create_and_apply_filters(
-                    df_curr_ytd, cols_curr, unique_prefix="overview_curr"
-                )
-                df_prev_f, f_prev = create_and_apply_filters(
-                    df_prev_ytd, cols_prev, unique_prefix="overview_prev"
-                )
-                df_old2_f = None
+                dfs_for_filters = [df_prev_ytd, df_curr_ytd]
                 if df_old2_ytd is not None:
-                    df_old2_f, f_old2 = create_and_apply_filters(
-                        df_old2_ytd, cols_old2, unique_prefix="overview_old2"
-                    )
+                    dfs_for_filters.append(df_old2_ytd)
 
-                # For simplicity in overview, show two-year L4L between prev and curr
+                filtered_list, meta = apply_shared_filters(
+                    dfs_for_filters,
+                    cols_prev,  # struktura taka sama
+                    unique_prefix="overview",
+                )
+
+                # Rozpakowanie
+                if df_old2_ytd is not None:
+                    df_prev_f, df_curr_f, df_old2_f = filtered_list
+                else:
+                    df_prev_f, df_curr_f = filtered_list
+                    df_old2_f = None
+
+                # W Overview pokazujemy szczegółowy L4L między prev a curr
                 st.markdown("### Detailed L4L (Previous vs Current) — Overview")
                 render_two_year_dashboard(
                     df_new=df_curr_f,
@@ -1367,38 +1444,55 @@ with tab_overview:
                     cols_old=cols_prev,
                     context_name="overview_l4l",
                     unique_prefix="overview_l4l",
+                    category_filter=meta["category"],
                 )
 
 # ================= DETAILED L4L =================
 with tab_l4l:
     st.header("Detailed Like-for-Like")
 
-    if df_prev is None or df_curr is None:
-        st.warning("Detailed L4L requires at least Previous Year and Current Year files.")
+    # Detailed L4L ma działać dla dowolnych dwóch dostępnych lat
+    year_options = []
+    year_to_df = {}
+    year_to_cols = {}
+
+    if df_old2 is not None:
+        year_options.append(year_old2)
+        year_to_df[year_old2] = df_old2
+        year_to_cols[year_old2] = cols_old2
+    if df_prev is not None:
+        year_options.append(year_prev)
+        year_to_df[year_prev] = df_prev
+        year_to_cols[year_prev] = cols_prev
+    if df_curr is not None:
+        year_options.append(year_curr)
+        year_to_df[year_curr] = df_curr
+        year_to_cols[year_curr] = cols_curr
+
+    if len(year_options) < 2:
+        st.warning("Detailed L4L requires at least two year files.")
     else:
         st.markdown("#### Select years (older on the left, newer on the right)")
         left_year_option = st.selectbox(
             "Older year",
-            [year_prev, year_curr],
+            year_options,
             index=0,
             key="l4l_left_year",
         )
         right_year_option = st.selectbox(
             "Newer year",
-            [year_prev, year_curr],
-            index=1,
+            year_options,
+            index=1 if len(year_options) > 1 else 0,
             key="l4l_right_year",
         )
 
         if left_year_option == right_year_option:
             st.error("Older year and newer year must be different.")
         else:
-            if left_year_option == year_prev:
-                df_left, cols_left = df_prev, cols_prev
-                df_right, cols_right = df_curr, cols_curr
-            else:
-                df_left, cols_left = df_curr, cols_curr
-                df_right, cols_right = df_prev, cols_prev
+            df_left = year_to_df[left_year_option]
+            cols_left = year_to_cols[left_year_option]
+            df_right = year_to_df[right_year_option]
+            cols_right = year_to_cols[right_year_option]
 
             months_left = sorted(
                 df_left[cols_left["Month"]].dropna().unique().tolist(),
@@ -1453,12 +1547,12 @@ with tab_l4l:
                     ]
 
                     st.markdown("### Filters for Detailed L4L")
-                    left_filtered, _ = create_and_apply_filters(
-                        df_left_l4l, cols_left, unique_prefix="l4l_left"
+                    filtered_list, meta = apply_shared_filters(
+                        [df_left_l4l, df_right_l4l],
+                        cols_left,  # struktura taka sama
+                        unique_prefix="l4l",
                     )
-                    right_filtered, _ = create_and_apply_filters(
-                        df_right_l4l, cols_right, unique_prefix="l4l_right"
-                    )
+                    left_filtered, right_filtered = filtered_list
 
                     render_two_year_dashboard(
                         df_new=right_filtered,
@@ -1467,6 +1561,7 @@ with tab_l4l:
                         cols_old=cols_left,
                         context_name="detailed_l4l",
                         unique_prefix="detailed_l4l",
+                        category_filter=meta["category"],
                     )
 
 # ================= FULL YEAR ANALYSIS =================
@@ -1500,10 +1595,15 @@ with tab_full:
         cols_selected = year_map_cols[selected_full]
 
         st.markdown("### Filters for Full Year")
-        filtered_selected, _ = create_and_apply_filters(
+        filtered_selected, meta = create_single_filters(
             df_selected, cols_selected, unique_prefix="full"
         )
 
+        # W Full Year nie pokazujemy Customer Impact
         render_single_year_dashboard(
-            filtered_selected, cols_selected, selected_full, unique_prefix="full_dash"
+            filtered_selected,
+            cols_selected,
+            selected_full,
+            unique_prefix="full_dash",
+            category_filter=meta["category"],
         )
