@@ -1,26 +1,19 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-import hashlib
-import json
 
-# =========================
-# CONFIGURATION
-# =========================
-DISPLAY_DECIMALS = 0  # 0 => integers, 1 => one decimal place
+# ========================= CONFIG =========================
+DISPLAY_DECIMALS = 0  # 0 or 1
 MONTHS_ORDER = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
 ]
 
-# =========================
-# UTILITIES
-# =========================
+# ========================= HELPERS =========================
 def to_decimal(x):
     if pd.isna(x):
-        return Decimal('0')
+        return Decimal("0")
     if isinstance(x, Decimal):
         return x
     try:
@@ -30,53 +23,86 @@ def to_decimal(x):
             return Decimal(str(x))
         s = str(x).strip().replace(" ", "").replace(",", ".")
         if s == "" or s.lower() == "nan":
-            return Decimal('0')
+            return Decimal("0")
         return Decimal(s)
     except (InvalidOperation, Exception):
-        return Decimal('0')
+        return Decimal("0")
+
 
 def decimal_sum(series):
     try:
-        return sum(series.tolist(), Decimal('0'))
+        return sum((to_decimal(v) for v in series.tolist()), Decimal("0"))
     except Exception:
-        return Decimal(str(series.sum()))
+        return Decimal("0")
 
-def format_number_plain(d, decimals=DISPLAY_DECIMALS):
-    if not isinstance(d, Decimal):
-        d = to_decimal(d)
-    if decimals == 0:
-        q = d.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
-        return f"{int(q)}"
-    else:
-        q = d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
-        return f"{q:.1f}"
 
-def calc_yoy_clean(new, old):
+def safe_div(a: Decimal, b: Decimal) -> Decimal:
+    try:
+        if b == 0:
+            return Decimal("0")
+        return a / b
+    except (InvalidOperation, ZeroDivisionError):
+        return Decimal("0")
+
+
+def calc_yoy_clean(new: Decimal, old: Decimal):
     try:
         if old < 0 and new == 0:
             return None
         if old == 0:
-            return Decimal('100') if new > 0 else Decimal('0')
+            return Decimal("100") if new > 0 else Decimal("0")
         if old > 0 and new == 0:
-            return Decimal('-100')
-        return (new - old) / (abs(old)) * Decimal('100')
+            return Decimal("-100")
+        return (new - old) / abs(old) * Decimal("100")
     except Exception:
         return None
 
-def yoy_label(val, special=False):
+
+def yoy_label(val, special: bool = False):
     if special:
         return "Recovery to 0 ⚠️"
     if val is None:
         return "0%"
     try:
         v = float(val)
-    except:
+    except Exception:
         return "0%"
     if v > 0:
         return f"+{v:.0f}% 🟢"
-    elif v < 0:
+    if v < 0:
         return f"{v:.0f}% 🔴"
     return "0%"
+
+
+def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
+    try:
+        if not isinstance(d, Decimal):
+            d = to_decimal(d)
+        if decimals == 0:
+            q = d.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            return str(int(q))
+        q = d.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        return f"{q:.1f}"
+    except (InvalidOperation, Exception):
+        return "0"
+
+
+def add_index(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.reset_index(drop=True)
+    df.index = df.index + 1
+    return df
+
+
+def sort_by_col_desc(df: pd.DataFrame, col: str) -> pd.DataFrame:
+    if col not in df.columns:
+        return df
+    try:
+        return df.sort_values(by=col, ascending=False)
+    except Exception:
+        tmp = df.copy()
+        tmp[col] = tmp[col].apply(lambda x: float(to_decimal(x)))
+        return tmp.sort_values(by=col, ascending=False)
+
 
 def normalize_category(x):
     x = str(x).lower()
@@ -100,594 +126,693 @@ def normalize_category(x):
     if "article" in x: return "Articles"
     return "Other"
 
-def sort_by_col_desc(df, col):
-    if col in df.columns:
-        try:
-            return df.sort_values(by=col, ascending=False)
-        except Exception:
-            tmp = df.copy()
-            tmp[col] = tmp[col].apply(lambda x: float(x) if isinstance(x, Decimal) else float(Decimal(str(x))))
-            return tmp.sort_values(by=col, ascending=False)
-    return df
 
-def add_index(df):
-    df = df.reset_index(drop=True)
-    df.index = df.index + 1
-    return df
+ALLOWED_CATEGORIES = [
+    "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
+    "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
+    "Invitations", "Articles", "Masks", "Pinata", "Plastic Cups"
+]
 
-def get_unique_key(prefix: str):
-    if "unique_key_counter" not in st.session_state:
-        st.session_state.unique_key_counter = 0
-    st.session_state.unique_key_counter += 1
-    return f"{prefix}_{st.session_state.unique_key_counter}"
-
-# =========================
-# DATA LOADING & PREP
-# =========================
-def load_excel_as_df(file):
+# ========================= DATA LOADING =========================
+def load_and_prep_data(file, label: str):
     if file is None:
-        return None
-    df = pd.read_excel(file, dtype=object, engine='openpyxl')
+        return None, None
+    df = pd.read_excel(file, dtype=object, engine="openpyxl")
     df.columns = df.columns.str.strip()
-    return df
 
-def detect_columns(df):
-    cols = {
-        "Month": None, "Customer": None, "Country": None, "Vat": None,
-        "Code": None, "Desc": None, "Brand": None, "Category": None,
-        "NetValue": None, "Quantity": None
-    }
-    if df is None:
-        for k in cols:
-            cols[k] = f"__missing_{k}__"
-        return cols
-
-    lower_map = {col.lower(): col for col in df.columns}
-    for key in lower_map:
-        if "month" in key and cols["Month"] is None:
-            cols["Month"] = lower_map[key]
-        if "customer" in key and cols["Customer"] is None:
-            cols["Customer"] = lower_map[key]
-        if "country" in key and cols["Country"] is None:
-            cols["Country"] = lower_map[key]
-        if "vat" in key and cols["Vat"] is None:
-            cols["Vat"] = lower_map[key]
-        if ("art" in key or "art." in key or "art nr" in key or "artnr" in key or "art number" in key) and cols["Code"] is None:
-            cols["Code"] = lower_map[key]
-        if ("description" in key or "article" in key or "desc" in key) and cols["Desc"] is None:
-            cols["Desc"] = lower_map[key]
-        if "brand" in key and cols["Brand"] is None:
-            cols["Brand"] = lower_map[key]
-        if "category" in key and cols["Category"] is None:
-            cols["Category"] = lower_map[key]
-        if ("net" in key and "value" in key) or ("netvalue" in key) or ("net_value" in key) or ("net value" in key):
-            if cols["NetValue"] is None:
-                cols["NetValue"] = lower_map[key]
-        if ("qty" in key or "quantity" in key) and cols["Quantity"] is None:
-            cols["Quantity"] = lower_map[key]
-
-    if cols["NetValue"] is None or cols["Quantity"] is None:
-        numeric_candidates = []
-        for col in df.columns:
-            sample = df[col].dropna().astype(str).head(10).tolist()
-            numeric_count = sum(1 for s in sample if any(ch.isdigit() for ch in s))
-            if numeric_count >= 1:
-                numeric_candidates.append(col)
-        if len(numeric_candidates) >= 2:
-            if cols["NetValue"] is None:
-                cols["NetValue"] = numeric_candidates[-2]
-            if cols["Quantity"] is None:
-                cols["Quantity"] = numeric_candidates[-1]
-
-    for k in cols:
-        if cols[k] is None:
-            cols[k] = f"__missing_{k}__"
-    return cols
-
-def prepare_df(df_raw, cols_map):
-    if df_raw is None:
+    # Try to map by names first, then by position as fallback
+    col_map = {}
+    def find_col(possible_names, fallback_idx=None):
+        for n in df.columns:
+            if str(n).strip().lower() in [p.lower() for p in possible_names]:
+                return n
+        if fallback_idx is not None and fallback_idx < len(df.columns):
+            return df.columns[fallback_idx]
         return None
-    df = df_raw.copy()
-    for k, col in cols_map.items():
-        if col not in df.columns:
-            df[col] = "" if k not in ("NetValue", "Quantity") else Decimal('0')
-    nv = cols_map["NetValue"]
-    q = cols_map["Quantity"]
-    df[nv] = df[nv].apply(to_decimal)
-    df[q] = df[q].apply(to_decimal)
-    for key in ["Month", "Customer", "Country", "Vat", "Code", "Desc", "Brand", "Category"]:
-        col = cols_map.get(key)
-        if col in df.columns:
-            df[col] = df[col].astype(str).fillna("").replace("nan", "")
-        else:
-            df[col] = ""
-    df["Category Clean"] = df[cols_map["Category"]].apply(normalize_category)
-    df = df[df[cols_map["Desc"]].notna()]
-    df = df[df[cols_map["Desc"]].str.lower() != "none"]
-    return df
 
-# =========================
-# UI & App State
-# =========================
-st.set_page_config(layout="wide", page_title="Sales Intelligence")
-st.title("📊 Sales Intelligence Dashboard")
+    col_map["Month"] = find_col(["Month"], 0)
+    col_map["Customer"] = find_col(["Customer Name", "Customer"], 1)
+    col_map["Country"] = find_col(["Country"], 2)
+    col_map["Vat"] = find_col(["Vat ID Nr.", "VAT", "Vat"], 3)
+    col_map["Code"] = find_col(["Art. Nr.", "Article Number", "SKU"], 4)
+    col_map["Desc"] = find_col(["Article description", "Description"], 5)
+    col_map["Brand"] = find_col(["Brand Name", "Brand"], 6)
+    col_map["Cat"] = find_col(["Category"], 7)
+    col_map["Net"] = find_col(["Net Value", "Net", "NetValue"], 8)
+    col_map["Qty"] = find_col(["Quantity", "Qty"], 9)
 
-# File upload
-col1, col2, col3 = st.columns(3)
-with col1:
-    file_current = st.file_uploader("Current Year (partial YTD)", type=["xlsx"], key="file_current")
-with col2:
-    file_prev = st.file_uploader("Previous Year (full)", type=["xlsx"], key="file_prev")
-with col3:
-    file_old = st.file_uploader("Two Years Ago (full)", type=["xlsx"], key="file_old")
+    required = ["Month", "Customer", "Country", "Code", "Desc", "Brand", "Cat", "Net", "Qty"]
+    missing = [k for k in required if col_map.get(k) is None]
+    if missing:
+        st.error(f"File '{label}': missing required columns: {missing}")
+        return None, None
 
-if not file_current and not file_prev and not file_old:
-    st.info("Upload at least one file to start. Recommended: upload all three for full multi-year analysis.")
-    st.stop()
+    # Convert numeric
+    df[col_map["Net"]] = df[col_map["Net"]].apply(to_decimal)
+    df[col_map["Qty"]] = df[col_map["Qty"]].apply(to_decimal)
 
-# Load and prepare
-df_curr_raw = load_excel_as_df(file_current) if file_current else None
-df_prev_raw = load_excel_as_df(file_prev) if file_prev else None
-df_old_raw = load_excel_as_df(file_old) if file_old else None
+    # Text columns
+    for key in ["Month", "Customer", "Country", "Vat", "Code", "Desc", "Brand", "Cat"]:
+        c = col_map.get(key)
+        if c is None:
+            continue
+        df[c] = df[c].astype(str).fillna("").replace("nan", "")
 
-cols_curr = detect_columns(df_curr_raw) if df_curr_raw is not None else None
-cols_prev = detect_columns(df_prev_raw) if df_prev_raw is not None else None
-cols_old = detect_columns(df_old_raw) if df_old_raw is not None else None
+    # Category clean
+    df["Category Clean"] = df[col_map["Cat"]].apply(normalize_category)
+    df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
 
-df_curr = prepare_df(df_curr_raw, cols_curr) if df_curr_raw is not None else None
-df_prev = prepare_df(df_prev_raw, cols_prev) if df_prev_raw is not None else None
-df_old = prepare_df(df_old_raw, cols_old) if df_old_raw is not None else None
+    # Clean description
+    df = df[df[col_map["Desc"]].notna()]
+    df = df[df[col_map["Desc"]].str.lower() != "none"]
 
-df_curr_original = df_curr.copy() if df_curr is not None else None
-df_prev_original = df_prev.copy() if df_prev is not None else None
-df_old_original = df_old.copy() if df_old is not None else None
+    return df, col_map
 
-# Session state for main tab and per-tab filters
-if "main_tab" not in st.session_state:
-    st.session_state.main_tab = "overview"
 
-# Reset per-tab filters when switching main tab
-def reset_tab_filters(tab_key):
-    keys = [
-        f"filter_country_{tab_key}", f"filter_customer_{tab_key}", f"filter_category_{tab_key}",
-        f"l4l_left_year", f"l4l_right_year", f"l4l_months_{tab_key}",
-        f"full_selected_year_{tab_key}"
-    ]
-    for k in keys:
-        if k in st.session_state:
-            del st.session_state[k]
+# ========================= FILTERS =========================
+def create_and_apply_filters(df, cols, prefix: str):
+    if df is None or cols is None:
+        return None, None, None, None
 
-# Filter creation (per-tab, independent)
-def create_filters_for(df_ref, cols_map, tab_key):
-    if df_ref is None:
-        return None
-    country_col = cols_map["Country"]
-    cust_col = cols_map["Customer"]
+    country_col = cols["Country"]
+    customer_col = cols["Customer"]
     cat_col = "Category Clean"
 
-    countries = ["All Countries"] + sorted(df_ref[country_col].replace("", pd.NA).dropna().unique().tolist()) if country_col in df_ref.columns else ["All Countries"]
-    customers = ["All Customers"] + sorted(df_ref[cust_col].replace("", pd.NA).dropna().unique().tolist()) if cust_col in df_ref.columns else ["All Customers"]
-    categories = ["All Categories"] + sorted(df_ref[cat_col].dropna().unique().tolist()) if cat_col in df_ref.columns else ["All Categories"]
+    countries = ["All Countries"] + sorted(df[country_col].replace("", pd.NA).dropna().unique())
+    customers = ["All Customers"] + sorted(df[customer_col].replace("", pd.NA).dropna().unique())
+    categories = ["All Categories"] + sorted(df[cat_col].dropna().unique())
 
-    key_country = f"filter_country_{tab_key}"
-    key_customer = f"filter_customer_{tab_key}"
-    key_category = f"filter_category_{tab_key}"
+    sel_country = st.selectbox(
+        "Country",
+        countries,
+        key=f"{prefix}_country"
+    )
+    sel_customer = st.selectbox(
+        "Customer",
+        customers,
+        key=f"{prefix}_customer"
+    )
+    sel_category = st.selectbox(
+        "Category",
+        categories,
+        key=f"{prefix}_category"
+    )
 
-    # safe defaults
-    default_country = st.session_state.get(key_country, "All Countries")
-    default_customer = st.session_state.get(key_customer, "All Customers")
-    default_category = st.session_state.get(key_category, "All Categories")
-
-    sel_country = st.selectbox("Country", countries, index=countries.index(default_country) if default_country in countries else 0, key=key_country)
-    sel_customer = st.selectbox("Customer", customers, index=customers.index(default_customer) if default_customer in customers else 0, key=key_customer)
-    sel_category = st.selectbox("Category", categories, index=categories.index(default_category) if default_category in categories else 0, key=key_category)
-
-    d = df_ref.copy()
+    d = df.copy()
     if sel_country != "All Countries":
         d = d[d[country_col] == sel_country]
     if sel_customer != "All Customers":
-        d = d[d[cust_col] == sel_customer]
+        d = d[d[customer_col] == sel_customer]
     if sel_category != "All Categories":
-        d = d[d[cat_col] == sel_category]
-    return d
+        d = d[d["Category Clean"] == sel_category]
 
-# Dashboard renderer (keeps layout similar to original code but per dataset)
-def render_dashboard(df, df_original_all, cols_map, context_name="Dataset", unique_prefix="u"):
-    if df is None or df.empty:
-        st.info("No data for this view.")
+    return d, sel_country, sel_customer, sel_category
+
+
+# ========================= PER-YEAR DASHBOARD =========================
+def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str):
+    if df is None or cols is None or df.empty:
+        st.info(f"No data for {context_name}")
         return
 
-    month_col = cols_map["Month"]
-    cust_col = cols_map["Customer"]
-    country_col = cols_map["Country"]
-    code_col = cols_map["Code"]
-    desc_col = cols_map["Desc"]
-    brand_col = cols_map["Brand"]
-    net_col = cols_map["NetValue"]
-    qty_col = cols_map["Quantity"]
+    net_col = cols["Net"]
+    qty_col = cols["Qty"]
+    code_col = cols["Code"]
+    desc_col = cols["Desc"]
+    brand_col = cols["Brand"]
 
-    # KPI
-    st.markdown("## 💰 KPI (Net / Qty)")
-    # Use original totals when no filters applied for this dataset (to match Excel)
-    no_filters = True
-    # check only filters for this dataset prefix (unique_prefix)
-    if st.session_state.get(f"filter_country_{unique_prefix}", "All Countries") != "All Countries":
-        no_filters = False
-    if st.session_state.get(f"filter_customer_{unique_prefix}", "All Customers") != "All Customers":
-        no_filters = False
-    if st.session_state.get(f"filter_category_{unique_prefix}", "All Categories") != "All Categories":
-        no_filters = False
+    # ---------- KPI ----------
+    st.subheader(f"💰 KPI – {context_name}")
+    total_net = decimal_sum(df[net_col])
+    total_qty = decimal_sum(df[qty_col])
 
-    use_df_for_kpi = df_original_all if df_original_all is not None and no_filters else df
+    k1, k2 = st.columns(2)
+    k1.metric("Net Sales", format_number_plain(total_net))
+    k2.metric("Quantity", format_number_plain(total_qty))
 
-    total_net = decimal_sum(use_df_for_kpi[net_col]) if net_col in use_df_for_kpi.columns else Decimal('0')
-    total_qty = decimal_sum(use_df_for_kpi[qty_col]) if qty_col in use_df_for_kpi.columns else Decimal('0')
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(f"Net ({context_name})", format_number_plain(total_net))
-    c2.metric(f"Qty ({context_name})", format_number_plain(total_qty))
-    # Category performance
     st.divider()
-    st.markdown("## 📊 Category Performance")
-    cat_perf = df.groupby("Category Clean").agg({net_col: decimal_sum}).reset_index()
-    cat_perf = sort_by_col_desc(cat_perf, net_col)
-    if cat_perf.empty:
-        st.info("No category data")
+
+    # ---------- CATEGORY PERFORMANCE ----------
+    st.markdown(f"## 📂 Category Performance – {context_name}")
+    cat = df.groupby("Category Clean").agg({net_col: decimal_sum}).reset_index()
+    cat = sort_by_col_desc(cat, net_col)
+
+    if cat.empty:
+        st.info("No category data.")
     else:
-        disp = cat_perf.copy()
-        disp[net_col] = disp[net_col].apply(format_number_plain)
-        st.dataframe(add_index(disp))
+        total_cat_net = decimal_sum(cat[net_col])
+        cat["Share %"] = cat[net_col].apply(
+            lambda x: safe_div(x, total_cat_net) * Decimal("100") if total_cat_net != 0 else Decimal("0")
+        )
 
-    # Brand performance
+        plot_df = cat.copy()
+        plot_df[net_col] = plot_df[net_col].apply(lambda x: float(to_decimal(x)))
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(
+                px.pie(plot_df, names="Category Clean", values=net_col),
+                use_container_width=True
+            )
+        with c2:
+            disp = cat.copy()
+            disp[net_col] = disp[net_col].apply(format_number_plain)
+            disp["Share %"] = disp["Share %"].apply(lambda x: f"{format_number_plain(x)}%")
+            st.dataframe(add_index(disp[["Category Clean", net_col, "Share %"]]))
+
     st.divider()
-    st.markdown("## 🏷️ Brand Performance")
+
+    # ---------- BRAND PERFORMANCE ----------
+    st.markdown(f"## 🏷️ Brand Performance – {context_name}")
     brand = df.groupby(brand_col).agg({net_col: decimal_sum}).reset_index()
     brand = sort_by_col_desc(brand, net_col)
+
     if brand.empty:
-        st.info("No brand data")
+        st.info("No brand data.")
     else:
-        brand_disp = brand.copy()
-        brand_disp[net_col] = brand_disp[net_col].apply(format_number_plain)
-        c1, c2 = st.columns([1, 2])
+        total_brand_net = decimal_sum(brand[net_col])
+        brand["Share %"] = brand[net_col].apply(
+            lambda x: safe_div(x, total_brand_net) * Decimal("100") if total_brand_net != 0 else Decimal("0")
+        )
+
+        b_plot = brand.copy()
+        b_plot[net_col] = b_plot[net_col].apply(lambda x: float(to_decimal(x)))
+
+        c1, c2 = st.columns(2)
         with c1:
-            st.dataframe(add_index(brand_disp))
+            st.plotly_chart(
+                px.pie(b_plot, names=brand_col, values=net_col),
+                use_container_width=True
+            )
         with c2:
-            plot_df = brand.copy()
-            plot_df[net_col] = plot_df[net_col].apply(lambda x: float(x))
-            st.plotly_chart(px.pie(plot_df, names=brand_col, values=net_col), use_container_width=True, key=get_unique_key(f"pie_{unique_prefix}"))
+            b_disp = brand.copy()
+            b_disp[net_col] = b_disp[net_col].apply(format_number_plain)
+            b_disp["Share %"] = b_disp["Share %"].apply(lambda x: f"{format_number_plain(x)}%")
+            st.dataframe(add_index(b_disp[[brand_col, net_col, "Share %"]]))
 
-    # Top products
     st.divider()
-    st.markdown("## 🏆 Top Products")
-    base_df = df.copy()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.write("### Top SKUs by Net")
-        d_net = base_df.groupby(code_col).agg({desc_col: "first", net_col: decimal_sum, qty_col: decimal_sum}).reset_index()
-        d_net = d_net[d_net[net_col] > 0]
-        d_net = sort_by_col_desc(d_net, net_col)
-        if d_net.empty:
-            st.info("No SKUs")
-        else:
-            top_net = d_net.head(10).copy()
-            top_net[net_col] = top_net[net_col].apply(format_number_plain)
-            top_net[qty_col] = top_net[qty_col].apply(format_number_plain)
-            st.dataframe(add_index(top_net[[code_col, desc_col, net_col, qty_col]]))
-            st.write(f"Top 10 share: {format_number_plain(decimal_sum(top_net[net_col]) / decimal_sum(d_net[net_col]) * Decimal('100'))}%")
-    with c2:
-        st.write("### Top SKUs by Quantity")
-        d_qty = base_df.groupby(code_col).agg({desc_col: "first", qty_col: decimal_sum, net_col: decimal_sum}).reset_index()
-        d_qty = d_qty[d_qty[qty_col] > 0]
-        d_qty = sort_by_col_desc(d_qty, qty_col)
-        if d_qty.empty:
-            st.info("No SKUs")
-        else:
-            top_qty = d_qty.head(10).copy()
-            top_qty[net_col] = top_qty[net_col].apply(format_number_plain)
-            top_qty[qty_col] = top_qty[qty_col].apply(format_number_plain)
-            st.dataframe(add_index(top_qty[[code_col, desc_col, qty_col, net_col]]))
-            st.write(f"Top 10 share: {format_number_plain(decimal_sum(top_qty[qty_col]) / decimal_sum(d_qty[qty_col]) * Decimal('100'))}%")
 
-    # Pareto
+    # ---------- TOP PRODUCTS ----------
+    st.markdown(f"## 🏆 Top Products – {context_name}")
+    top = df.groupby(code_col).agg({
+        desc_col: "first",
+        net_col: decimal_sum,
+        qty_col: decimal_sum
+    }).reset_index()
+
+    top = top[top[net_col] > 0]
+    top = sort_by_col_desc(top, net_col)
+
+    if top.empty:
+        st.info("No product data.")
+    else:
+        total_net_all = decimal_sum(top[net_col])
+        top10 = top.head(10).copy()
+        top10["Share %"] = top10[net_col].apply(
+            lambda x: safe_div(x, total_net_all) * Decimal("100") if total_net_all != 0 else Decimal("0")
+        )
+
+        disp = top10.copy()
+        disp[net_col] = disp[net_col].apply(format_number_plain)
+        disp[qty_col] = disp[qty_col].apply(format_number_plain)
+        disp["Share %"] = disp["Share %"].apply(lambda x: f"{format_number_plain(x)}%")
+
+        st.dataframe(add_index(disp[[code_col, desc_col, net_col, qty_col, "Share %"]]))
+        share_total = safe_div(decimal_sum(top10[net_col]), total_net_all) * Decimal("100") if total_net_all != 0 else Decimal("0")
+        st.write(f"Top 10 share: {format_number_plain(share_total)}%")
+
     st.divider()
-    st.markdown("## 📊 Pareto Analysis")
-    ptab1, ptab2 = st.tabs(["Net Pareto", "Qty Pareto"])
-    with ptab1:
-        p = df.groupby(code_col).agg({desc_col: "first", net_col: decimal_sum}).reset_index()
-        p = p[p[net_col] > 0]
-        if p.empty:
-            st.info("No sales in this period")
+
+    # ---------- PARETO ----------
+    st.markdown(f"## 📊 Pareto Analysis – {context_name}")
+    p = df.groupby(code_col).agg({
+        desc_col: "first",
+        "Category Clean": "first",
+        net_col: decimal_sum
+    }).reset_index()
+
+    p = p[p[net_col] > 0]
+    if p.empty:
+        st.info("No sales for Pareto.")
+    else:
+        p = sort_by_col_desc(p, net_col)
+        total_val = decimal_sum(p[net_col])
+        if total_val == 0:
+            st.info("Total value is zero.")
         else:
-            p = sort_by_col_desc(p, net_col)
             p["cum_value"] = p[net_col].cumsum()
-            total_value = decimal_sum(p[net_col])
-            if total_value == 0:
-                st.info("Total value is zero")
-            else:
-                p["cum_share"] = p["cum_value"].apply(lambda x: (x / total_value))
-                top80 = p[p["cum_share"] <= Decimal('0.8')]
-                top80[net_col] = top80[net_col].apply(format_number_plain)
-                st.dataframe(add_index(top80[[code_col, desc_col, net_col]]))
-    with ptab2:
-        p = df.groupby(code_col).agg({desc_col: "first", qty_col: decimal_sum}).reset_index()
-        p = p[p[qty_col] > 0]
-        if p.empty:
-            st.info("No sales in this period")
-        else:
-            p = sort_by_col_desc(p, qty_col)
-            p["cum_value"] = p[qty_col].cumsum()
-            total_value = decimal_sum(p[qty_col])
-            if total_value == 0:
-                st.info("Total value is zero")
-            else:
-                p["cum_share"] = p["cum_value"].apply(lambda x: (x / total_value))
-                top80 = p[p["cum_share"] <= Decimal('0.8')]
-                top80[qty_col] = top80[qty_col].apply(format_number_plain)
-                st.dataframe(add_index(top80[[code_col, desc_col, qty_col]]))
+            p["cum_share"] = p["cum_value"].apply(lambda x: safe_div(x, total_val))
+            top80 = p[p["cum_share"] <= Decimal("0.8")]
 
-    # ABC
+            total_sku = p[code_col].nunique()
+            pareto_sku = top80[code_col].nunique()
+            sku_share = safe_div(Decimal(pareto_sku), Decimal(total_sku)) * Decimal("100") if total_sku > 0 else Decimal("0")
+
+            st.write(
+                f"Top SKU for 80%: {pareto_sku} / {total_sku} "
+                f"({format_number_plain(sku_share)}% of SKU)"
+            )
+
+            p_disp = top80[[code_col, desc_col, "Category Clean", net_col]].copy()
+            p_disp[net_col] = p_disp[net_col].apply(format_number_plain)
+            st.dataframe(add_index(p_disp))
+
     st.divider()
-    st.markdown("## 📊 ABC Analysis")
-    atab1, atab2 = st.tabs(["ABC by Net", "ABC by Qty"])
-    with atab1:
-        a = df.groupby([code_col, desc_col]).agg({net_col: decimal_sum}).reset_index()
-        a = a[a[net_col] > 0]
-        if a.empty:
-            st.info("No sales in this period")
+
+    # ---------- ABC ----------
+    st.markdown(f"## 📊 ABC Analysis – {context_name}")
+    a = df.groupby(code_col).agg({
+        desc_col: "first",
+        net_col: decimal_sum
+    }).reset_index()
+
+    a = a[a[net_col] > 0]
+    if a.empty:
+        st.info("No sales for ABC.")
+    else:
+        a = sort_by_col_desc(a, net_col).reset_index(drop=True)
+        total_val = decimal_sum(a[net_col])
+        if total_val == 0:
+            st.info("Total value is zero.")
         else:
-            a = sort_by_col_desc(a, net_col)
-            total_val = decimal_sum(a[net_col])
-            if total_val == 0:
-                st.info("Total is zero")
-            else:
-                a["cum"] = a[net_col].cumsum().apply(lambda x: x / total_val)
-                a["segment"] = "C"
-                a.loc[a["cum"] <= Decimal('0.7'), "segment"] = "A"
-                a.loc[(a["cum"] > Decimal('0.7')) & (a["cum"] <= Decimal('0.9')), "segment"] = "B"
-                a[net_col] = a[net_col].apply(format_number_plain)
-                st.dataframe(add_index(a[[code_col, desc_col, net_col, "segment"]]))
-    with atab2:
-        a = df.groupby([code_col, desc_col]).agg({qty_col: decimal_sum}).reset_index()
-        a = a[a[qty_col] > 0]
-        if a.empty:
-            st.info("No sales in this period")
-        else:
-            a = sort_by_col_desc(a, qty_col)
-            total_val = decimal_sum(a[qty_col])
-            if total_val == 0:
-                st.info("Total is zero")
-            else:
-                a["cum"] = a[qty_col].cumsum().apply(lambda x: x / total_val)
-                a["segment"] = "C"
-                a.loc[a["cum"] <= Decimal('0.7'), "segment"] = "A"
-                a.loc[(a["cum"] > Decimal('0.7')) & (a["cum"] <= Decimal('0.9')), "segment"] = "B"
-                a[qty_col] = a[qty_col].apply(format_number_plain)
-                st.dataframe(add_index(a[[code_col, desc_col, qty_col, "segment"]]))
+            a["cum"] = a[net_col].cumsum().apply(lambda x: safe_div(x, total_val))
+            a["segment"] = "C"
+            a.loc[a["cum"] <= Decimal("0.7"), "segment"] = "A"
+            a.loc[(a["cum"] > Decimal("0.7")) & (a["cum"] <= Decimal("0.9")), "segment"] = "B"
 
-    # SKU-level table
+            seg_counts = a["segment"].value_counts()
+            st.write(
+                f"A: {seg_counts.get('A', 0)} | "
+                f"B: {seg_counts.get('B', 0)} | "
+                f"C: {seg_counts.get('C', 0)}"
+            )
+
+            a_disp = a[[code_col, desc_col, net_col, "segment"]].copy()
+            a_disp[net_col] = a_disp[net_col].apply(format_number_plain)
+            st.dataframe(add_index(a_disp))
+
     st.divider()
-    st.markdown("## 📈 SKU-level (Net / Qty)")
-    yoy = df.groupby(code_col).agg({desc_col: "first", net_col: decimal_sum, qty_col: decimal_sum}).reset_index()
-    yoy = sort_by_col_desc(yoy, net_col)
-    if yoy.empty:
-        st.info("No data")
-    else:
-        yoy_disp = yoy.copy()
-        yoy_disp[net_col] = yoy_disp[net_col].apply(format_number_plain)
-        yoy_disp[qty_col] = yoy_disp[qty_col].apply(format_number_plain)
-        st.dataframe(add_index(yoy_disp[[code_col, desc_col, net_col, qty_col]]))
 
-    # Auto insights
+
+# ========================= 3-YEAR L4L OVERVIEW =========================
+def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, cols_old):
+    st.header("Overview – 3-year Like-for-Like")
+
+    if df_curr is None or cols_curr is None or df_prev is None or cols_prev is None:
+        st.info("Please upload at least Current Year and Previous Year files.")
+        return
+
+    # Common months across available years
+    months_curr = set(df_curr[cols_curr["Month"]].dropna().unique())
+    months_prev = set(df_prev[cols_prev["Month"]].dropna().unique())
+    common_months = months_curr & months_prev
+
+    if df_old is not None and cols_old is not None:
+        months_old = set(df_old[cols_old["Month"]].dropna().unique())
+        common_months = common_months & months_old
+
+    common_months = sorted(
+        list(common_months),
+        key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99
+    )
+
+    if not common_months:
+        st.warning("No common months across years for Like-for-Like.")
+        return
+
+    st.info(f"Detected common months for L4L: {', '.join(common_months)}")
+
+    # Filters (apply to all years)
+    st.markdown("### Global Filters (applied to all 3 years)")
+    with st.container():
+        f_col1, f_col2, f_col3 = st.columns(3)
+        with f_col1:
+            filtered_curr, sel_country, sel_customer, sel_category = create_and_apply_filters(
+                df_curr[df_curr[cols_curr["Month"]].isin(common_months)],
+                cols_curr,
+                prefix="overview_curr"
+            )
+        # To keep filters consistent, reapply same selections to other years
+        def apply_same_filters(df, cols):
+            if df is None or cols is None:
+                return None
+            d = df[df[cols["Month"]].isin(common_months)].copy()
+            if sel_country != "All Countries":
+                d = d[d[cols["Country"]] == sel_country]
+            if sel_customer != "All Customers":
+                d = d[d[cols["Customer"]] == sel_customer]
+            if sel_category != "All Categories":
+                d = d[d["Category Clean"] == sel_category]
+            return d
+
+        filtered_prev = apply_same_filters(df_prev, cols_prev)
+        filtered_old = apply_same_filters(df_old, cols_old) if df_old is not None else None
+
+    # ---------- KPI 3-YEAR ----------
+    st.markdown("### 3-year Net Sales (L4L)")
+    net_curr = decimal_sum(filtered_curr[cols_curr["Net"]])
+    net_prev = decimal_sum(filtered_prev[cols_prev["Net"]])
+    net_old = decimal_sum(filtered_old[cols_old["Net"]]) if filtered_old is not None else None
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Current Year Net", format_number_plain(net_curr))
+    c2.metric("Previous Year Net", format_number_plain(net_prev),
+              yoy_label(calc_yoy_clean(net_curr, net_prev)))
+    if filtered_old is not None:
+        c3.metric("Two Years Ago Net", format_number_plain(net_old),
+                  yoy_label(calc_yoy_clean(net_prev, net_old)))
+    else:
+        c3.write("Two Years Ago: no file")
+
+    chart_data = {
+        "Year": ["Current", "Previous"],
+        "Net": [float(net_curr), float(net_prev)]
+    }
+    if filtered_old is not None:
+        chart_data["Year"].append("Two Years Ago")
+        chart_data["Net"].append(float(net_old))
+
+    chart_df = pd.DataFrame(chart_data)
+    st.plotly_chart(
+        px.bar(chart_df, x="Year", y="Net", text="Net", title="3-year Net Sales (L4L)"),
+        use_container_width=True
+    )
+
     st.divider()
-    st.markdown("## 🧠 Auto Insights")
-    cat_summary = df.groupby("Category Clean").agg({net_col: decimal_sum}).reset_index()
-    cat_summary = sort_by_col_desc(cat_summary, net_col)
-    if cat_summary.empty:
-        st.info("No category insights")
-    else:
-        top5 = cat_summary.head(5).copy()
-        top5[net_col] = top5[net_col].apply(format_number_plain)
-        st.write("Top 5 Categories by Net")
-        st.dataframe(add_index(top5))
 
-# =========================
-# MAIN TABS
-# =========================
-tab1, tab2, tab3 = st.tabs(["Overview (3-year L4L)", "Like-for-Like (L4L)", "Full Year"])
+    # ---------- BRAND PERFORMANCE – 3 PIE CHARTS + TABLE ----------
+    st.markdown("## 🏷️ Brand Performance – 3-year L4L")
 
-# ---------- Overview ----------
-with tab1:
-    if st.session_state.main_tab != "overview":
-        # reset filters for other tabs
-        reset_tab_filters("l4l")
-        reset_tab_filters("full")
-        st.session_state.main_tab = "overview"
+    def brand_perf_block(df, cols, title):
+        if df is None or cols is None or df.empty:
+            st.info(f"No data for {title}")
+            return None
+        net_col = cols["Net"]
+        brand_col = cols["Brand"]
+        b = df.groupby(brand_col).agg({net_col: decimal_sum}).reset_index()
+        b = sort_by_col_desc(b, net_col)
+        total = decimal_sum(b[net_col])
+        b["Share %"] = b[net_col].apply(
+            lambda x: safe_div(x, total) * Decimal("100") if total != 0 else Decimal("0")
+        )
+        plot_df = b.copy()
+        plot_df[net_col] = plot_df[net_col].apply(lambda x: float(to_decimal(x)))
+        st.markdown(f"#### {title}")
+        st.plotly_chart(
+            px.pie(plot_df, names=brand_col, values=net_col),
+            use_container_width=True
+        )
+        disp = b.copy()
+        disp[net_col] = disp[net_col].apply(format_number_plain)
+        disp["Share %"] = disp["Share %"].apply(lambda x: f"{format_number_plain(x)}%")
+        st.dataframe(add_index(disp[[brand_col, net_col, "Share %"]]))
+        return b
 
-    st.header("Overview — 3-year Like-for-Like (YTD sync)")
-    if df_curr_original is None or df_prev_original is None:
-        st.info("Upload at least current-year and previous-year files to see the overview.")
-    else:
-        months_present = df_curr_original[cols_curr["Month"]].dropna().unique().tolist()
-        months_sorted = sorted(months_present, key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99)
-        st.info(f"Detected months in current-year file: {', '.join(months_sorted)}")
+    bc1, bc2, bc3 = st.columns(3)
+    with bc1:
+        brand_perf_block(filtered_curr, cols_curr, "Current Year")
+    with bc2:
+        brand_perf_block(filtered_prev, cols_prev, "Previous Year")
+    with bc3:
+        brand_perf_block(filtered_old, cols_old, "Two Years Ago")
 
-        prev_l4l = df_prev_original[df_prev_original[cols_prev["Month"]].isin(months_sorted)] if df_prev_original is not None else None
-        old_l4l = df_old_original[df_old_original[cols_old["Month"]].isin(months_sorted)] if df_old_original is not None else None
+    st.divider()
 
-        val_curr = decimal_sum(df_curr_original[cols_curr["NetValue"]]) if df_curr_original is not None else Decimal('0')
-        val_prev = decimal_sum(prev_l4l[cols_prev["NetValue"]]) if prev_l4l is not None else Decimal('0')
-        val_old = decimal_sum(old_l4l[cols_old["NetValue"]]) if old_l4l is not None else Decimal('0')
+    # ---------- CATEGORY PERFORMANCE – 3 PIE CHARTS + TABLE ----------
+    st.markdown("## 📂 Category Performance – 3-year L4L")
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Current Year (YTD)", format_number_plain(val_curr))
-        c2.metric("Previous Year (L4L)", format_number_plain(val_prev), yoy_label(calc_yoy_clean(val_curr, val_prev)))
-        c3.metric("Two Years Ago (L4L)", format_number_plain(val_old), yoy_label(calc_yoy_clean(val_prev, val_old)))
+    def cat_perf_block(df, cols, title):
+        if df is None or cols is None or df.empty:
+            st.info(f"No data for {title}")
+            return None
+        net_col = cols["Net"]
+        c = df.groupby("Category Clean").agg({net_col: decimal_sum}).reset_index()
+        c = sort_by_col_desc(c, net_col)
+        total = decimal_sum(c[net_col])
+        c["Share %"] = c[net_col].apply(
+            lambda x: safe_div(x, total) * Decimal("100") if total != 0 else Decimal("0")
+        )
+        plot_df = c.copy()
+        plot_df[net_col] = plot_df[net_col].apply(lambda x: float(to_decimal(x)))
+        st.markdown(f"#### {title}")
+        st.plotly_chart(
+            px.pie(plot_df, names="Category Clean", values=net_col),
+            use_container_width=True
+        )
+        disp = c.copy()
+        disp[net_col] = disp[net_col].apply(format_number_plain)
+        disp["Share %"] = disp["Share %"].apply(lambda x: f"{format_number_plain(x)}%")
+        st.dataframe(add_index(disp[["Category Clean", net_col, "Share %"]]))
+        return c
 
-        chart_df = pd.DataFrame({
-            "Year": ["Two Years Ago", "Previous Year", "Current Year"],
-            "Net": [float(val_old), float(val_prev), float(val_curr)]
+    cc1, cc2, cc3 = st.columns(3)
+    with cc1:
+        cat_perf_block(filtered_curr, cols_curr, "Current Year")
+    with cc2:
+        cat_perf_block(filtered_prev, cols_prev, "Previous Year")
+    with cc3:
+        cat_perf_block(filtered_old, cols_old, "Two Years Ago")
+
+    st.divider()
+
+    # ---------- L4L TABLE (3 YEARS) ----------
+    st.markdown("## 📈 L4L Table – 3-year (SKU level)")
+
+    net_curr_col = cols_curr["Net"]
+    qty_curr_col = cols_curr["Qty"]
+    code_curr = cols_curr["Code"]
+    desc_curr = cols_curr["Desc"]
+
+    net_prev_col = cols_prev["Net"]
+    qty_prev_col = cols_prev["Qty"]
+    code_prev = cols_prev["Code"]
+    desc_prev = cols_prev["Desc"]
+
+    # Aggregate per SKU per year
+    curr_agg = filtered_curr.groupby(code_curr).agg({
+        desc_curr: "first",
+        net_curr_col: decimal_sum,
+        qty_curr_col: decimal_sum
+    }).reset_index().rename(columns={
+        code_curr: "Code",
+        desc_curr: "Description",
+        net_curr_col: "Net_Current",
+        qty_curr_col: "Qty_Current"
+    })
+
+    prev_agg = filtered_prev.groupby(code_prev).agg({
+        desc_prev: "first",
+        net_prev_col: decimal_sum,
+        qty_prev_col: decimal_sum
+    }).reset_index().rename(columns={
+        code_prev: "Code",
+        desc_prev: "Description",
+        net_prev_col: "Net_Previous",
+        qty_prev_col: "Qty_Previous"
+    })
+
+    if filtered_old is not None and cols_old is not None:
+        net_old_col = cols_old["Net"]
+        qty_old_col = cols_old["Qty"]
+        code_old = cols_old["Code"]
+        desc_old = cols_old["Desc"]
+
+        old_agg = filtered_old.groupby(code_old).agg({
+            desc_old: "first",
+            net_old_col: decimal_sum,
+            qty_old_col: decimal_sum
+        }).reset_index().rename(columns={
+            code_old: "Code",
+            desc_old: "Description",
+            net_old_col: "Net_Old",
+            qty_old_col: "Qty_Old"
         })
-        st.plotly_chart(px.bar(chart_df, x="Year", y="Net", text="Net", title="3-year L4L Net (YTD)"), use_container_width=True, key=get_unique_key("overview_bar"))
-
-        # Provide a small per-year dashboard preview (respects overview filters)
-        st.divider()
-        st.markdown("### Overview - Current Year Snapshot")
-        # Use per-tab filters for overview (independent)
-        preview_df = create_filters_for(df_curr_original, cols_curr, tab_key="overview")
-        render_dashboard(preview_df, df_curr_original, cols_curr, context_name="Current Year (Overview)", unique_prefix="overview")
-
-# ---------- Like-for-Like ----------
-with tab2:
-    if st.session_state.main_tab != "l4l":
-        reset_tab_filters("overview")
-        reset_tab_filters("full")
-        st.session_state.main_tab = "l4l"
-
-    st.header("Like-for-Like (L4L) — choose years and months to compare")
-    available_years = []
-    dataset_map = {}
-    if df_curr_original is not None:
-        available_years.append("Current Year")
-        dataset_map["Current Year"] = (df_curr_original, cols_curr)
-    if df_prev_original is not None:
-        available_years.append("Previous Year")
-        dataset_map["Previous Year"] = (df_prev_original, cols_prev)
-    if df_old_original is not None:
-        available_years.append("Two Years Ago")
-        dataset_map["Two Years Ago"] = (df_old_original, cols_old)
-
-    if len(available_years) < 2:
-        st.info("Upload at least two files to compare years in L4L.")
     else:
-        left_year = st.selectbox("Select first year (A)", available_years, index=0, key=get_unique_key("l4l_left_year"))
-        default_right = available_years[1] if len(available_years) > 1 else available_years[0]
-        right_year = st.selectbox("Select second year (B)", available_years, index=available_years.index(default_right), key=get_unique_key("l4l_right_year"))
+        old_agg = None
 
-        if left_year == right_year:
-            st.warning("Choose two different years to compare.")
+    # Merge
+    l4l = pd.merge(curr_agg, prev_agg, on=["Code", "Description"], how="outer")
+    if old_agg is not None:
+        l4l = pd.merge(l4l, old_agg, on=["Code", "Description"], how="outer")
+
+    for col in ["Net_Current", "Net_Previous", "Net_Old", "Qty_Current", "Qty_Previous", "Qty_Old"]:
+        if col in l4l.columns:
+            l4l[col] = l4l[col].apply(to_decimal).fillna(Decimal("0"))
+
+    # YoY
+    l4l["YoY_Current_vs_Previous"] = l4l.apply(
+        lambda x: calc_yoy_clean(x.get("Net_Current", Decimal("0")), x.get("Net_Previous", Decimal("0"))),
+        axis=1
+    )
+    if "Net_Old" in l4l.columns:
+        l4l["YoY_Previous_vs_Old"] = l4l.apply(
+            lambda x: calc_yoy_clean(x.get("Net_Previous", Decimal("0")), x.get("Net_Old", Decimal("0"))),
+            axis=1
+        )
+    else:
+        l4l["YoY_Previous_vs_Old"] = None
+
+    l4l["YoY C vs P"] = l4l["YoY_Current_vs_Previous"].apply(yoy_label)
+    l4l["YoY P vs O"] = l4l["YoY_Previous_vs_Old"].apply(yoy_label)
+
+    l4l = sort_by_col_desc(l4l, "Net_Current")
+
+    disp = l4l.copy()
+    for col in ["Net_Current", "Net_Previous", "Net_Old", "Qty_Current", "Qty_Previous", "Qty_Old"]:
+        if col in disp.columns:
+            disp[col] = disp[col].apply(format_number_plain)
+
+    cols_to_show = ["Code", "Description",
+                    "Net_Current", "Net_Previous", "Net_Old",
+                    "Qty_Current", "Qty_Previous", "Qty_Old",
+                    "YoY C vs P", "YoY P vs O"]
+    cols_to_show = [c for c in cols_to_show if c in disp.columns]
+
+    st.dataframe(add_index(disp[cols_to_show]))
+
+
+# ========================= MAIN APP =========================
+st.set_page_config(page_title="Sales Intelligence Dashboard", layout="wide")
+st.title("📊 Sales Intelligence Dashboard – 3-year, L4L & Full Year")
+
+st.sidebar.header("📂 Data Import")
+file_curr = st.sidebar.file_uploader("Current Year (YTD)", type=["xlsx"], key="curr")
+file_prev = st.sidebar.file_uploader("Previous Year (Full)", type=["xlsx"], key="prev")
+file_old = st.sidebar.file_uploader("Two Years Ago (Full)", type=["xlsx"], key="old")
+
+df_curr, cols_curr = load_and_prep_data(file_curr, "Current Year")
+df_prev, cols_prev = load_and_prep_data(file_prev, "Previous Year")
+df_old, cols_old = load_and_prep_data(file_old, "Two Years Ago")
+
+if df_curr is None and df_prev is None and df_old is None:
+    st.info("Upload at least one Excel file to start.")
+    st.stop()
+
+tab_overview, tab_l4l, tab_full = st.tabs([
+    "📈 Overview – 3-year Like-for-Like",
+    "📅 Detailed Like-for-Like",
+    "📊 Full Year Analysis"
+])
+
+# ---------- TAB 1: OVERVIEW 3-YEAR L4L ----------
+with tab_overview:
+    render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, cols_old)
+
+# ---------- TAB 2: DETAILED L4L (2 YEARS, MONTH RANGE) ----------
+with tab_l4l:
+    st.header("Detailed Like-for-Like (2-year comparison)")
+
+    # Choose which two years to compare
+    year_options = []
+    if df_curr is not None: year_options.append("Current Year")
+    if df_prev is not None: year_options.append("Previous Year")
+    if df_old is not None: year_options.append("Two Years Ago")
+
+    if len(year_options) < 2:
+        st.info("Upload at least two files to run detailed L4L.")
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            left_year = st.selectbox("Left Year", year_options, key="l4l_left_year")
+        with c2:
+            right_year = st.selectbox("Right Year", [y for y in year_options if y != left_year], key="l4l_right_year")
+
+        def pick_df_and_cols(label):
+            if label == "Current Year":
+                return df_curr, cols_curr, "Current Year"
+            if label == "Previous Year":
+                return df_prev, cols_prev, "Previous Year"
+            if label == "Two Years Ago":
+                return df_old, cols_old, "Two Years Ago"
+            return None, None, label
+
+        df_left, cols_left, left_name = pick_df_and_cols(left_year)
+        df_right, cols_right, right_name = pick_df_and_cols(right_year)
+
+        if df_left is None or df_right is None:
+            st.warning("Selected years are not available.")
         else:
-            df_left, cols_left = dataset_map[left_year]
-            df_right, cols_right = dataset_map[right_year]
+            # Months intersection for L4L
+            months_left = set(df_left[cols_left["Month"]].dropna().unique())
+            months_right = set(df_right[cols_right["Month"]].dropna().unique())
+            common_months_lr = months_left & months_right
+            common_months_lr = sorted(
+                list(common_months_lr),
+                key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99
+            )
 
-            months_left = set(df_left[cols_left["Month"]].dropna().unique().tolist())
-            months_right = set(df_right[cols_right["Month"]].dropna().unique().tolist())
-            months_union = sorted(list(months_left | months_right), key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99)
-            default_selected = sorted(list(months_left & months_right), key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99)
+            if not common_months_lr:
+                st.warning("No common months between selected years.")
+            else:
+                st.info(f"Common months for L4L: {', '.join(common_months_lr)}")
 
-            selected_months = st.multiselect("Select months to include in comparison", months_union, default=default_selected, key=f"l4l_months_{get_unique_key('m')}")
+                selected_months = st.multiselect(
+                    "Select months for L4L",
+                    common_months_lr,
+                    default=common_months_lr,
+                    key="l4l_months"
+                )
 
-            # If either side is Current Year, ensure selected months are subset of current-year months
-            if "Current Year" in (left_year, right_year) and df_curr_original is not None:
-                current_months = set(df_curr_original[cols_curr["Month"]].dropna().unique().tolist())
-                if not set(selected_months).issubset(current_months):
-                    st.error("Selected months exceed the months available in Current Year file. Please select months within Current Year range.")
-                    st.stop()
+                if not selected_months:
+                    st.info("Select at least one month.")
+                else:
+                    # Filter by months
+                    df_left_m = df_left[df_left[cols_left["Month"]].isin(selected_months)].copy()
+                    df_right_m = df_right[df_right[cols_right["Month"]].isin(selected_months)].copy()
 
-            # Ensure both selected datasets have data for all selected months
-            if not set(selected_months).issubset(months_left):
-                st.error(f"Left year ({left_year}) does not contain data for all selected months.")
-                st.stop()
-            if not set(selected_months).issubset(months_right):
-                st.error(f"Right year ({right_year}) does not contain data for all selected months.")
-                st.stop()
+                    # Filters (shared)
+                    st.markdown("### Global Filters for this L4L view")
+                    filtered_left, sel_country_l, sel_customer_l, sel_category_l = create_and_apply_filters(
+                        df_left_m, cols_left, prefix="l4l_left"
+                    )
 
-            # Create per-tab filters (applied to both sides)
-            # Use current-year as reference for filter options if available, else left dataset
-            ref_df = df_curr_original if df_curr_original is not None else df_left
-            ref_cols = cols_curr if df_curr_original is not None else cols_left
-            _ = create_filters_for(ref_df, ref_cols, tab_key="l4l")
+                    def apply_same_filters_lr(df, cols):
+                        if df is None or cols is None:
+                            return None
+                        d = df[df[cols["Month"]].isin(selected_months)].copy()
+                        if sel_country_l != "All Countries":
+                            d = d[d[cols["Country"]] == sel_country_l]
+                        if sel_customer_l != "All Customers":
+                            d = d[d[cols["Customer"]] == sel_customer_l]
+                        if sel_category_l != "All Categories":
+                            d = d[d["Category Clean"] == sel_category_l]
+                        return d
 
-            sc = st.session_state
-            country_sel = sc.get("filter_country_l4l", "All Countries")
-            cust_sel = sc.get("filter_customer_l4l", "All Customers")
-            cat_sel = sc.get("filter_category_l4l", "All Categories")
+                    filtered_right = apply_same_filters_lr(df_right, cols_right)
 
-            def apply_filters_to(df_src, cols_map):
-                if df_src is None:
-                    return None
-                d = df_src.copy()
-                if country_sel != "All Countries":
-                    d = d[d[cols_map["Country"]] == country_sel]
-                if cust_sel != "All Customers":
-                    d = d[d[cols_map["Customer"]] == cust_sel]
-                if cat_sel != "All Categories":
-                    d = d[d["Category Clean"] == cat_sel]
-                return d
+                    # Two dashboards side by side
+                    st.markdown("### Side-by-side dashboards")
+                    dcol1, dcol2 = st.columns(2)
+                    with dcol1:
+                        render_single_year_dashboard(filtered_left, cols_left, left_name, unique_prefix="l4l_left_dash")
+                    with dcol2:
+                        render_single_year_dashboard(filtered_right, cols_right, right_name, unique_prefix="l4l_right_dash")
 
-            left_filtered = apply_filters_to(df_left, cols_left)
-            right_filtered = apply_filters_to(df_right, cols_right)
+# ---------- TAB 3: FULL YEAR ANALYSIS ----------
+with tab_full:
+    st.header("Full Year Analysis")
 
-            left_filtered = left_filtered[left_filtered[cols_left["Month"]].isin(selected_months)]
-            right_filtered = right_filtered[right_filtered[cols_right["Month"]].isin(selected_months)]
+    year_options_full = []
+    if df_prev is not None: year_options_full.append("Previous Year")
+    if df_old is not None: year_options_full.append("Two Years Ago")
 
-            st.markdown("### Comparison KPIs")
-            left_net = decimal_sum(left_filtered[cols_left["NetValue"]]) if left_filtered is not None else Decimal('0')
-            right_net = decimal_sum(right_filtered[cols_right["NetValue"]]) if right_filtered is not None else Decimal('0')
-
-            l1, l2 = st.columns(2)
-            l1.metric(f"{left_year} Net (selected months)", format_number_plain(left_net))
-            l2.metric(f"{right_year} Net (selected months)", format_number_plain(right_net), yoy_label(calc_yoy_clean(right_net, left_net)))
-
-            st.divider()
-            st.markdown(f"### {left_year} - Detailed")
-            render_dashboard(left_filtered, df_left, cols_left, context_name=left_year, unique_prefix="l4l_left")
-
-            st.divider()
-            st.markdown(f"### {right_year} - Detailed")
-            render_dashboard(right_filtered, df_right, cols_right, context_name=right_year, unique_prefix="l4l_right")
-
-# ---------- Full Year ----------
-with tab3:
-    if st.session_state.main_tab != "full":
-        reset_tab_filters("l4l")
-        reset_tab_filters("overview")
-        st.session_state.main_tab = "full"
-
-    st.header("Full Year Analysis — choose which full year to analyze")
-    full_year_options = []
-    full_map = {}
-    if df_prev_original is not None:
-        full_year_options.append("Previous Year (Full)")
-        full_map["Previous Year (Full)"] = (df_prev_original, cols_prev)
-    if df_old_original is not None:
-        full_year_options.append("Two Years Ago (Full)")
-        full_map["Two Years Ago (Full)"] = (df_old_original, cols_old)
-
-    if not full_year_options:
-        st.info("Upload at least one full-year file (previous year or two years ago) to use Full Year analysis.")
+    if not year_options_full:
+        st.info("Upload at least one full-year file (Previous or Two Years Ago).")
     else:
-        selected_full = st.selectbox("Select full-year dataset to analyze", full_year_options, key=get_unique_key("full_selected_year"))
-        df_selected, cols_selected = full_map[selected_full]
+        selected_full = st.selectbox("Select year for full-year analysis", year_options_full, key="full_year_select")
 
-        # per-tab filters for full
-        filtered_selected = create_filters_for(df_selected, cols_selected, tab_key="full")
-        render_dashboard(filtered_selected, df_selected, cols_selected, context_name=selected_full, unique_prefix="full")
+        def pick_df_cols_full(label):
+            if label == "Previous Year":
+                return df_prev, cols_prev, "Previous Year"
+            if label == "Two Years Ago":
+                return df_old, cols_old, "Two Years Ago"
+            return None, None, label
 
-        # If both full-year datasets present, allow comparison
-        if len(full_year_options) == 2:
-            st.divider()
-            st.markdown("### Compare the two full-year datasets")
-            other = [o for o in full_year_options if o != selected_full][0]
-            df_other, cols_other = full_map[other]
+        df_selected, cols_selected, context_name = pick_df_cols_full(selected_full)
 
-            sc = st.session_state
-            country_sel = sc.get("filter_country_full", "All Countries")
-            cust_sel = sc.get("filter_customer_full", "All Customers")
-            cat_sel = sc.get("filter_category_full", "All Categories")
-            other_filtered = df_other.copy()
-            if country_sel != "All Countries":
-                other_filtered = other_filtered[other_filtered[cols_other["Country"]] == country_sel]
-            if cust_sel != "All Customers":
-                other_filtered = other_filtered[other_filtered[cols_other["Customer"]] == cust_sel]
-            if cat_sel != "All Categories":
-                other_filtered = other_filtered[other_filtered["Category Clean"] == cat_sel]
-
-            net_sel = decimal_sum(filtered_selected[cols_selected["NetValue"]]) if filtered_selected is not None else Decimal('0')
-            net_other = decimal_sum(other_filtered[cols_other["NetValue"]]) if other_filtered is not None else Decimal('0')
-            c1, c2 = st.columns(2)
-            c1.metric(f"{selected_full} Net", format_number_plain(net_sel))
-            c2.metric(f"{other} Net", format_number_plain(net_other), yoy_label(calc_yoy_clean(net_sel, net_other)))
-
-            st.divider()
-            st.markdown(f"#### {other} - Detailed")
-            render_dashboard(other_filtered, df_other, cols_other, context_name=other, unique_prefix="full_other")
+        if df_selected is None or cols_selected is None:
+            st.warning("Selected year not available.")
+        else:
+            st.markdown("### Global Filters for Full Year")
+            filtered_selected, _, _, _ = create_and_apply_filters(df_selected, cols_selected, prefix="full")
+            render_single_year_dashboard(filtered_selected, cols_selected, context_name, unique_prefix="full_dash")
