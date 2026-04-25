@@ -18,20 +18,16 @@ def add_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def to_decimal(x):
-    if pd.isna(x):
+    """Convert Excel-like cell to Decimal, matching Excel behavior as close as possible."""
+    if x is None or pd.isna(x):
         return Decimal('0')
-    if isinstance(x, Decimal):
-        return x
     try:
-        if isinstance(x, int):
-            return Decimal(x)
-        if isinstance(x, float):
-            return Decimal(str(x))
-        s = str(x).strip().replace(" ", "").replace(",", ".")
-        if s == "" or s.lower() == "nan":
+        s = str(x).strip()
+        if s in ["", "-", "None", "nan"]:
             return Decimal('0')
+        s = s.replace(" ", "").replace(",", ".")
         return Decimal(s)
-    except (InvalidOperation, Exception):
+    except Exception:
         return Decimal('0')
 
 
@@ -177,7 +173,6 @@ def load_single_year_file(file, label: str):
     df = pd.read_excel(file, dtype=object, engine="openpyxl")
     df.columns = df.columns.str.strip()
 
-    # Try to detect columns
     month_col = None
     for c in df.columns:
         if str(c).strip().lower() == "month":
@@ -280,26 +275,17 @@ def load_single_year_file(file, label: str):
 
 # ================= FILTERS =================
 def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
-    """
-    Filtry dla jednego datasetu:
-    - Country
-    - Customer (tylko z wybranego Country)
-    - Category
-    """
     if df is None or cols is None:
         return None, None
 
     df_all = df.copy()
 
-    # Country list
     countries = ["All Countries"] + sorted(
         df_all[cols["Country"]].replace("", pd.NA).dropna().unique().tolist()
     )
-
     key_country = f"{unique_prefix}_country"
     selected_country = st.selectbox("Country", countries, key=key_country)
 
-    # Filter temp by country for customer list
     df_for_customers = df_all.copy()
     if selected_country != "All Countries":
         df_for_customers = df_for_customers[df_for_customers[cols["Country"]] == selected_country]
@@ -307,11 +293,9 @@ def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
     customers = ["All Customers"] + sorted(
         df_for_customers[cols["Customer"]].replace("", pd.NA).dropna().unique().tolist()
     )
-
     key_customer = f"{unique_prefix}_customer"
     selected_customer = st.selectbox("Customer", customers, key=key_customer)
 
-    # Category list (from df_for_customers)
     categories = ["All Categories"] + sorted(
         df_for_customers["Category Clean"].dropna().unique().tolist()
     )
@@ -336,13 +320,6 @@ def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
 
 
 def apply_shared_filters(dfs, cols, unique_prefix: str):
-    """
-    Wspólne filtry dla kilku lat w jednym widoku (Overview, Detailed L4L):
-    - Country
-    - Customer (tylko z wybranego Country)
-    - Category
-    Zwraca listę przefiltrowanych dfs w tej samej kolejności.
-    """
     if not dfs:
         return [], None
 
@@ -424,15 +401,15 @@ def render_two_year_dashboard(
     q_old = decimal_sum(df_old[qty_old])
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric(f"Net {year_old}", format_number_plain(s_old))
+    c1.metric(f"Net {year_old} (EUR)", format_number_plain(s_old))
     c2.metric(
-        f"Net {year_new}",
+        f"Net {year_new} (EUR)",
         format_number_plain(s_new),
         yoy_label(calc_yoy_clean(s_new, s_old)),
     )
-    c3.metric(f"Qty {year_old}", format_number_plain(q_old))
+    c3.metric(f"Qty {year_old} (PCS)", format_number_plain(q_old))
     c4.metric(
-        f"Qty {year_new}",
+        f"Qty {year_new} (PCS)",
         format_number_plain(q_new),
         yoy_label(calc_yoy_clean(q_new, q_old)),
     )
@@ -602,7 +579,7 @@ def render_two_year_dashboard(
                 })
                 .reset_index()
             )
-            d_old = d_old[d_old[net_old] > 0]
+            d_old = d_old[d_old[net_old].apply(lambda x: safe_decimal(x) > 0)]
             d_old = sort_by_col_desc(d_old, net_old)
             if d_old.empty:
                 st.info("No sales in older year.")
@@ -645,7 +622,7 @@ def render_two_year_dashboard(
                 })
                 .reset_index()
             )
-            d_new = d_new[d_new[net_new] > 0]
+            d_new = d_new[d_new[net_new].apply(lambda x: safe_decimal(x) > 0)]
             d_new = sort_by_col_desc(d_new, net_new)
             if d_new.empty:
                 st.info("No sales in newer year.")
@@ -698,18 +675,18 @@ def render_two_year_dashboard(
                 })
                 .reset_index()
             )
-            p = p[p[net_col] > 0]
+            p = p[p[net_col].apply(lambda x: safe_decimal(x) > 0)]
             if p.empty:
                 st.info("No sales in this period.")
             else:
                 p = sort_by_col_desc(p, net_col)
                 p["cum_value"] = p[net_col].cumsum()
-                total_val = decimal_sum(p[net_col])
-                if total_val == 0:
+                total_value = decimal_sum(p[net_col])
+                if total_value == 0:
                     st.info("Total value is zero.")
                 else:
                     p["cum_share"] = p["cum_value"].apply(
-                        lambda x: safe_decimal(x) / total_val
+                        lambda x: safe_decimal(x) / total_value
                     )
                     top80 = p[p["cum_share"] <= Decimal('0.8')]
                     total_sku = p[code_col].nunique()
@@ -722,9 +699,9 @@ def render_two_year_dashboard(
                     st.write(
                         f"Top SKU for 80%: {pareto_sku} / {total_sku} ({format_number_plain(sku_share)}% of SKU)"
                     )
-                    p_disp = top80[[code_col, desc_col, "Category Clean", net_col]].copy()
-                    p_disp[net_col] = p_disp[net_col].apply(format_number_plain)
-                    st.dataframe(add_index(p_disp))
+                    p_display = top80[[code_col, desc_col, "Category Clean", net_col]].copy()
+                    p_display[net_col] = p_display[net_col].apply(format_number_plain)
+                    st.dataframe(add_index(p_display))
 
     st.divider()
 
@@ -743,7 +720,7 @@ def render_two_year_dashboard(
                 .agg({desc_col: "first", net_col: decimal_sum})
                 .reset_index()
             )
-            a = a[a[net_col] > 0]
+            a = a[a[net_col].apply(lambda x: safe_decimal(x) > 0)]
             if a.empty:
                 st.info("No sales in this period.")
             else:
@@ -765,9 +742,9 @@ def render_two_year_dashboard(
                     st.write(
                         f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}"
                     )
-                    a_disp = a[[code_col, desc_col, net_col, "segment"]].copy()
-                    a_disp[net_col] = a_disp[net_col].apply(format_number_plain)
-                    st.dataframe(add_index(a_disp))
+                    a_display = a[[code_col, desc_col, net_col, "segment"]].copy()
+                    a_display[net_col] = a_display[net_col].apply(format_number_plain)
+                    st.dataframe(add_index(a_display))
 
     st.divider()
 
@@ -915,7 +892,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # CUSTOMER IMPACT (nie w Full Year, ale tutaj tak)
+    # CUSTOMER IMPACT
     st.markdown("### Customer Impact (Growth vs Decline)")
 
     all_categories = sorted(
@@ -1058,8 +1035,8 @@ def render_single_year_dashboard(
     s_qty = decimal_sum(df[qty_col])
 
     c1, c2 = st.columns(2)
-    c1.metric(f"Net {year_name}", format_number_plain(s_net))
-    c2.metric(f"Qty {year_name}", format_number_plain(s_qty))
+    c1.metric(f"Net {year_name} (EUR)", format_number_plain(s_net))
+    c2.metric(f"Qty {year_name} (PCS)", format_number_plain(s_qty))
 
     st.divider()
 
@@ -1130,7 +1107,7 @@ def render_single_year_dashboard(
             .agg({desc_col: "first", net_col: decimal_sum, qty_col: decimal_sum})
             .reset_index()
         )
-        d = d[d[net_col] > 0]
+        d = d[d[net_col].apply(lambda x: safe_decimal(x) > 0)]
         d = sort_by_col_desc(d, net_col)
         if d.empty:
             st.info("No sales.")
@@ -1162,7 +1139,7 @@ def render_single_year_dashboard(
         .agg({desc_col: "first", "Category Clean": "first", net_col: decimal_sum})
         .reset_index()
     )
-    p = p[p[net_col] > 0]
+    p = p[p[net_col].apply(lambda x: safe_decimal(x) > 0)]
     if p.empty:
         st.info("No sales.")
     else:
@@ -1199,7 +1176,7 @@ def render_single_year_dashboard(
         .agg({desc_col: "first", net_col: decimal_sum})
         .reset_index()
     )
-    a = a[a[net_col] > 0]
+    a = a[a[net_col].apply(lambda x: safe_decimal(x) > 0)]
     if a.empty:
         st.info("No sales.")
     else:
@@ -1284,7 +1261,6 @@ tab_overview, tab_l4l, tab_full = st.tabs(
 with tab_overview:
     st.header("Overview — 3-year Like-for-Like")
 
-    # Do overview tylko jeśli mamy co najmniej 2 lata (prev + curr minimum)
     if df_prev is None or df_curr is None:
         st.warning("For 3-year L4L you need at least Current Year and Previous Year files.")
     else:
@@ -1375,16 +1351,16 @@ with tab_overview:
 
                 c1, c2, c3 = st.columns(3)
                 c1.metric(
-                    f"Net {year_old2}" if df_old2 else "Net older",
+                    f"Net {year_old2} (EUR)" if df_old2 else "Net older (EUR)",
                     format_number_plain(val_old2),
                 )
                 c2.metric(
-                    f"Net {year_prev}",
+                    f"Net {year_prev} (EUR)",
                     format_number_plain(val_prev),
                     yoy_label(calc_yoy_clean(val_prev, val_old2)) if df_old2 else None,
                 )
                 c3.metric(
-                    f"Net {year_curr}",
+                    f"Net {year_curr} (EUR)",
                     format_number_plain(val_curr),
                     yoy_label(calc_yoy_clean(val_curr, val_prev)),
                 )
@@ -1416,7 +1392,6 @@ with tab_overview:
 
                 st.divider()
 
-                # Wspólne filtry dla Overview (dla wszystkich lat)
                 st.markdown("### Global Filters (Overview)")
                 dfs_for_filters = [df_prev_ytd, df_curr_ytd]
                 if df_old2_ytd is not None:
@@ -1424,18 +1399,16 @@ with tab_overview:
 
                 filtered_list, meta = apply_shared_filters(
                     dfs_for_filters,
-                    cols_prev,  # struktura taka sama
+                    cols_prev,
                     unique_prefix="overview",
                 )
 
-                # Rozpakowanie
                 if df_old2_ytd is not None:
                     df_prev_f, df_curr_f, df_old2_f = filtered_list
                 else:
                     df_prev_f, df_curr_f = filtered_list
                     df_old2_f = None
 
-                # W Overview pokazujemy szczegółowy L4L między prev a curr
                 st.markdown("### Detailed L4L (Previous vs Current) — Overview")
                 render_two_year_dashboard(
                     df_new=df_curr_f,
@@ -1451,7 +1424,6 @@ with tab_overview:
 with tab_l4l:
     st.header("Detailed Like-for-Like")
 
-    # Detailed L4L ma działać dla dowolnych dwóch dostępnych lat
     year_options = []
     year_to_df = {}
     year_to_cols = {}
@@ -1549,7 +1521,7 @@ with tab_l4l:
                     st.markdown("### Filters for Detailed L4L")
                     filtered_list, meta = apply_shared_filters(
                         [df_left_l4l, df_right_l4l],
-                        cols_left,  # struktura taka sama
+                        cols_left,
                         unique_prefix="l4l",
                     )
                     left_filtered, right_filtered = filtered_list
@@ -1599,7 +1571,6 @@ with tab_full:
             df_selected, cols_selected, unique_prefix="full"
         )
 
-        # W Full Year nie pokazujemy Customer Impact
         render_single_year_dashboard(
             filtered_selected,
             cols_selected,
