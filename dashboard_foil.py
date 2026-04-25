@@ -140,8 +140,8 @@ def load_and_prep_data(file, label: str):
     df = pd.read_excel(file, dtype=object, engine="openpyxl")
     df.columns = df.columns.str.strip()
 
-    # Try to map by names first, then by position as fallback
     col_map = {}
+
     def find_col(possible_names, fallback_idx=None):
         for n in df.columns:
             if str(n).strip().lower() in [p.lower() for p in possible_names]:
@@ -160,6 +160,7 @@ def load_and_prep_data(file, label: str):
     col_map["Cat"] = find_col(["Category"], 7)
     col_map["Net"] = find_col(["Net Value", "Net", "NetValue"], 8)
     col_map["Qty"] = find_col(["Quantity", "Qty"], 9)
+    col_map["Year"] = find_col(["Year"], None)
 
     required = ["Month", "Customer", "Country", "Code", "Desc", "Brand", "Cat", "Net", "Qty"]
     missing = [k for k in required if col_map.get(k) is None]
@@ -167,22 +168,17 @@ def load_and_prep_data(file, label: str):
         st.error(f"File '{label}': missing required columns: {missing}")
         return None, None
 
-    # Convert numeric
     df[col_map["Net"]] = df[col_map["Net"]].apply(to_decimal)
     df[col_map["Qty"]] = df[col_map["Qty"]].apply(to_decimal)
 
-    # Text columns
-    for key in ["Month", "Customer", "Country", "Vat", "Code", "Desc", "Brand", "Cat"]:
+    for key in ["Month", "Customer", "Country", "Vat", "Code", "Desc", "Brand", "Cat", "Year"]:
         c = col_map.get(key)
         if c is None:
             continue
         df[c] = df[c].astype(str).fillna("").replace("nan", "")
 
-    # Category clean
     df["Category Clean"] = df[col_map["Cat"]].apply(normalize_category)
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
-
-    # Clean description
     df = df[df[col_map["Desc"]].notna()]
     df = df[df[col_map["Desc"]].str.lower() != "none"]
 
@@ -229,6 +225,15 @@ def create_and_apply_filters(df, cols, prefix: str):
     return d, sel_country, sel_customer, sel_category
 
 
+def get_year_label(df, cols, fallback: str) -> str:
+    year_col_name = cols.get("Year")
+    if year_col_name and year_col_name in df.columns:
+        vals = [v for v in df[year_col_name].unique().tolist() if str(v).strip() != ""]
+        if len(vals) == 1:
+            return str(vals[0])
+    return fallback
+
+
 # ========================= PER-YEAR DASHBOARD =========================
 def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str):
     if df is None or cols is None or df.empty:
@@ -241,19 +246,21 @@ def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str
     desc_col = cols["Desc"]
     brand_col = cols["Brand"]
 
+    year_label = get_year_label(df, cols, context_name)
+
     # ---------- KPI ----------
-    st.subheader(f"💰 KPI – {context_name}")
+    st.subheader(f"💰 KPI – {year_label}")
     total_net = decimal_sum(df[net_col])
     total_qty = decimal_sum(df[qty_col])
 
     k1, k2 = st.columns(2)
-    k1.metric("Net Sales", format_number_plain(total_net))
-    k2.metric("Quantity", format_number_plain(total_qty))
+    k1.metric(f"Net Sales {year_label}", format_number_plain(total_net))
+    k2.metric(f"Quantity {year_label}", format_number_plain(total_qty))
 
     st.divider()
 
     # ---------- CATEGORY PERFORMANCE ----------
-    st.markdown(f"## 📂 Category Performance – {context_name}")
+    st.markdown(f"## 📂 Category Performance – {year_label}")
     cat = df.groupby("Category Clean").agg({net_col: decimal_sum}).reset_index()
     cat = sort_by_col_desc(cat, net_col)
 
@@ -272,7 +279,8 @@ def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str
         with c1:
             st.plotly_chart(
                 px.pie(plot_df, names="Category Clean", values=net_col),
-                use_container_width=True
+                use_container_width=True,
+                key=f"{unique_prefix}_cat_pie"
             )
         with c2:
             disp = cat.copy()
@@ -283,7 +291,7 @@ def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str
     st.divider()
 
     # ---------- BRAND PERFORMANCE ----------
-    st.markdown(f"## 🏷️ Brand Performance – {context_name}")
+    st.markdown(f"## 🏷️ Brand Performance – {year_label}")
     brand = df.groupby(brand_col).agg({net_col: decimal_sum}).reset_index()
     brand = sort_by_col_desc(brand, net_col)
 
@@ -302,7 +310,8 @@ def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str
         with c1:
             st.plotly_chart(
                 px.pie(b_plot, names=brand_col, values=net_col),
-                use_container_width=True
+                use_container_width=True,
+                key=f"{unique_prefix}_brand_pie"
             )
         with c2:
             b_disp = brand.copy()
@@ -313,7 +322,7 @@ def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str
     st.divider()
 
     # ---------- TOP PRODUCTS ----------
-    st.markdown(f"## 🏆 Top Products – {context_name}")
+    st.markdown(f"## 🏆 Top Products – {year_label}")
     top = df.groupby(code_col).agg({
         desc_col: "first",
         net_col: decimal_sum,
@@ -344,7 +353,7 @@ def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str
     st.divider()
 
     # ---------- PARETO ----------
-    st.markdown(f"## 📊 Pareto Analysis – {context_name}")
+    st.markdown(f"## 📊 Pareto Analysis – {year_label}")
     p = df.groupby(code_col).agg({
         desc_col: "first",
         "Category Clean": "first",
@@ -380,7 +389,7 @@ def render_single_year_dashboard(df, cols, context_name: str, unique_prefix: str
     st.divider()
 
     # ---------- ABC ----------
-    st.markdown(f"## 📊 ABC Analysis – {context_name}")
+    st.markdown(f"## 📊 ABC Analysis – {year_label}")
     a = df.groupby(code_col).agg({
         desc_col: "first",
         net_col: decimal_sum
@@ -422,7 +431,6 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
         st.info("Please upload at least Current Year and Previous Year files.")
         return
 
-    # Common months across available years
     months_curr = set(df_curr[cols_curr["Month"]].dropna().unique())
     months_prev = set(df_prev[cols_prev["Month"]].dropna().unique())
     common_months = months_curr & months_prev
@@ -442,17 +450,18 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
 
     st.info(f"Detected common months for L4L: {', '.join(common_months)}")
 
-    # Filters (apply to all years)
+    year_curr_label = get_year_label(df_curr, cols_curr, "Current Year")
+    year_prev_label = get_year_label(df_prev, cols_prev, "Previous Year")
+    year_old_label = get_year_label(df_old, cols_old, "Two Years Ago") if df_old is not None else "Two Years Ago"
+
     st.markdown("### Global Filters (applied to all 3 years)")
     with st.container():
-        f_col1, f_col2, f_col3 = st.columns(3)
-        with f_col1:
-            filtered_curr, sel_country, sel_customer, sel_category = create_and_apply_filters(
-                df_curr[df_curr[cols_curr["Month"]].isin(common_months)],
-                cols_curr,
-                prefix="overview_curr"
-            )
-        # To keep filters consistent, reapply same selections to other years
+        filtered_curr, sel_country, sel_customer, sel_category = create_and_apply_filters(
+            df_curr[df_curr[cols_curr["Month"]].isin(common_months)],
+            cols_curr,
+            prefix="overview_curr"
+        )
+
         def apply_same_filters(df, cols):
             if df is None or cols is None:
                 return None
@@ -468,42 +477,41 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
         filtered_prev = apply_same_filters(df_prev, cols_prev)
         filtered_old = apply_same_filters(df_old, cols_old) if df_old is not None else None
 
-    # ---------- KPI 3-YEAR ----------
     st.markdown("### 3-year Net Sales (L4L)")
     net_curr = decimal_sum(filtered_curr[cols_curr["Net"]])
     net_prev = decimal_sum(filtered_prev[cols_prev["Net"]])
     net_old = decimal_sum(filtered_old[cols_old["Net"]]) if filtered_old is not None else None
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Current Year Net", format_number_plain(net_curr))
-    c2.metric("Previous Year Net", format_number_plain(net_prev),
+    c1.metric(f"Net {year_curr_label}", format_number_plain(net_curr))
+    c2.metric(f"Net {year_prev_label}", format_number_plain(net_prev),
               yoy_label(calc_yoy_clean(net_curr, net_prev)))
     if filtered_old is not None:
-        c3.metric("Two Years Ago Net", format_number_plain(net_old),
+        c3.metric(f"Net {year_old_label}", format_number_plain(net_old),
                   yoy_label(calc_yoy_clean(net_prev, net_old)))
     else:
-        c3.write("Two Years Ago: no file")
+        c3.write(f"{year_old_label}: no file")
 
     chart_data = {
-        "Year": ["Current", "Previous"],
+        "Year": [year_curr_label, year_prev_label],
         "Net": [float(net_curr), float(net_prev)]
     }
     if filtered_old is not None:
-        chart_data["Year"].append("Two Years Ago")
+        chart_data["Year"].append(year_old_label)
         chart_data["Net"].append(float(net_old))
 
     chart_df = pd.DataFrame(chart_data)
     st.plotly_chart(
         px.bar(chart_df, x="Year", y="Net", text="Net", title="3-year Net Sales (L4L)"),
-        use_container_width=True
+        use_container_width=True,
+        key="overview_bar_3year"
     )
 
     st.divider()
 
-    # ---------- BRAND PERFORMANCE – 3 PIE CHARTS + TABLE ----------
     st.markdown("## 🏷️ Brand Performance – 3-year L4L")
 
-    def brand_perf_block(df, cols, title):
+    def brand_perf_block(df, cols, title, key_prefix):
         if df is None or cols is None or df.empty:
             st.info(f"No data for {title}")
             return None
@@ -520,7 +528,8 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
         st.markdown(f"#### {title}")
         st.plotly_chart(
             px.pie(plot_df, names=brand_col, values=net_col),
-            use_container_width=True
+            use_container_width=True,
+            key=f"{key_prefix}_brand_pie"
         )
         disp = b.copy()
         disp[net_col] = disp[net_col].apply(format_number_plain)
@@ -530,18 +539,17 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
 
     bc1, bc2, bc3 = st.columns(3)
     with bc1:
-        brand_perf_block(filtered_curr, cols_curr, "Current Year")
+        brand_perf_block(filtered_curr, cols_curr, year_curr_label, "overview_curr")
     with bc2:
-        brand_perf_block(filtered_prev, cols_prev, "Previous Year")
+        brand_perf_block(filtered_prev, cols_prev, year_prev_label, "overview_prev")
     with bc3:
-        brand_perf_block(filtered_old, cols_old, "Two Years Ago")
+        brand_perf_block(filtered_old, cols_old, year_old_label, "overview_old")
 
     st.divider()
 
-    # ---------- CATEGORY PERFORMANCE – 3 PIE CHARTS + TABLE ----------
     st.markdown("## 📂 Category Performance – 3-year L4L")
 
-    def cat_perf_block(df, cols, title):
+    def cat_perf_block(df, cols, title, key_prefix):
         if df is None or cols is None or df.empty:
             st.info(f"No data for {title}")
             return None
@@ -557,7 +565,8 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
         st.markdown(f"#### {title}")
         st.plotly_chart(
             px.pie(plot_df, names="Category Clean", values=net_col),
-            use_container_width=True
+            use_container_width=True,
+            key=f"{key_prefix}_cat_pie"
         )
         disp = c.copy()
         disp[net_col] = disp[net_col].apply(format_number_plain)
@@ -567,15 +576,14 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
 
     cc1, cc2, cc3 = st.columns(3)
     with cc1:
-        cat_perf_block(filtered_curr, cols_curr, "Current Year")
+        cat_perf_block(filtered_curr, cols_curr, year_curr_label, "overview_curr")
     with cc2:
-        cat_perf_block(filtered_prev, cols_prev, "Previous Year")
+        cat_perf_block(filtered_prev, cols_prev, year_prev_label, "overview_prev")
     with cc3:
-        cat_perf_block(filtered_old, cols_old, "Two Years Ago")
+        cat_perf_block(filtered_old, cols_old, year_old_label, "overview_old")
 
     st.divider()
 
-    # ---------- L4L TABLE (3 YEARS) ----------
     st.markdown("## 📈 L4L Table – 3-year (SKU level)")
 
     net_curr_col = cols_curr["Net"]
@@ -588,7 +596,6 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
     code_prev = cols_prev["Code"]
     desc_prev = cols_prev["Desc"]
 
-    # Aggregate per SKU per year
     curr_agg = filtered_curr.groupby(code_curr).agg({
         desc_curr: "first",
         net_curr_col: decimal_sum,
@@ -630,7 +637,6 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
     else:
         old_agg = None
 
-    # Merge
     l4l = pd.merge(curr_agg, prev_agg, on=["Code", "Description"], how="outer")
     if old_agg is not None:
         l4l = pd.merge(l4l, old_agg, on=["Code", "Description"], how="outer")
@@ -639,7 +645,6 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
         if col in l4l.columns:
             l4l[col] = l4l[col].apply(to_decimal).fillna(Decimal("0"))
 
-    # YoY
     l4l["YoY_Current_vs_Previous"] = l4l.apply(
         lambda x: calc_yoy_clean(x.get("Net_Current", Decimal("0")), x.get("Net_Previous", Decimal("0"))),
         axis=1
@@ -655,6 +660,7 @@ def render_overview_three_years(df_curr, cols_curr, df_prev, cols_prev, df_old, 
     l4l["YoY C vs P"] = l4l["YoY_Current_vs_Previous"].apply(yoy_label)
     l4l["YoY P vs O"] = l4l["YoY_Previous_vs_Old"].apply(yoy_label)
 
+    # sort by newer year (current)
     l4l = sort_by_col_desc(l4l, "Net_Current")
 
     disp = l4l.copy()
@@ -702,7 +708,6 @@ with tab_overview:
 with tab_l4l:
     st.header("Detailed Like-for-Like (2-year comparison)")
 
-    # Choose which two years to compare
     year_options = []
     if df_curr is not None: year_options.append("Current Year")
     if df_prev is not None: year_options.append("Previous Year")
@@ -713,17 +718,17 @@ with tab_l4l:
     else:
         c1, c2 = st.columns(2)
         with c1:
-            left_year = st.selectbox("Left Year", year_options, key="l4l_left_year")
+            left_year = st.selectbox("Left Year (newer)", year_options, key="l4l_left_year")
         with c2:
-            right_year = st.selectbox("Right Year", [y for y in year_options if y != left_year], key="l4l_right_year")
+            right_year = st.selectbox("Right Year (older)", [y for y in year_options if y != left_year], key="l4l_right_year")
 
         def pick_df_and_cols(label):
             if label == "Current Year":
-                return df_curr, cols_curr, "Current Year"
+                return df_curr, cols_curr, get_year_label(df_curr, cols_curr, "Current Year")
             if label == "Previous Year":
-                return df_prev, cols_prev, "Previous Year"
+                return df_prev, cols_prev, get_year_label(df_prev, cols_prev, "Previous Year")
             if label == "Two Years Ago":
-                return df_old, cols_old, "Two Years Ago"
+                return df_old, cols_old, get_year_label(df_old, cols_old, "Two Years Ago")
             return None, None, label
 
         df_left, cols_left, left_name = pick_df_and_cols(left_year)
@@ -732,7 +737,6 @@ with tab_l4l:
         if df_left is None or df_right is None:
             st.warning("Selected years are not available.")
         else:
-            # Months intersection for L4L
             months_left = set(df_left[cols_left["Month"]].dropna().unique())
             months_right = set(df_right[cols_right["Month"]].dropna().unique())
             common_months_lr = months_left & months_right
@@ -756,11 +760,9 @@ with tab_l4l:
                 if not selected_months:
                     st.info("Select at least one month.")
                 else:
-                    # Filter by months
                     df_left_m = df_left[df_left[cols_left["Month"]].isin(selected_months)].copy()
                     df_right_m = df_right[df_right[cols_right["Month"]].isin(selected_months)].copy()
 
-                    # Filters (shared)
                     st.markdown("### Global Filters for this L4L view")
                     filtered_left, sel_country_l, sel_customer_l, sel_category_l = create_and_apply_filters(
                         df_left_m, cols_left, prefix="l4l_left"
@@ -780,7 +782,6 @@ with tab_l4l:
 
                     filtered_right = apply_same_filters_lr(df_right, cols_right)
 
-                    # Two dashboards side by side
                     st.markdown("### Side-by-side dashboards")
                     dcol1, dcol2 = st.columns(2)
                     with dcol1:
@@ -803,9 +804,9 @@ with tab_full:
 
         def pick_df_cols_full(label):
             if label == "Previous Year":
-                return df_prev, cols_prev, "Previous Year"
+                return df_prev, cols_prev, get_year_label(df_prev, cols_prev, "Previous Year")
             if label == "Two Years Ago":
-                return df_old, cols_old, "Two Years Ago"
+                return df_old, cols_old, get_year_label(df_old, cols_old, "Two Years Ago")
             return None, None, label
 
         df_selected, cols_selected, context_name = pick_df_cols_full(selected_full)
