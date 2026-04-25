@@ -1,23 +1,18 @@
-# app.py
 import streamlit as st
 import pandas as pd
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import plotly.express as px
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 import json
 
-# =========================
-# CONFIGURATION
-# =========================
+# ================= CONFIG =================
 DISPLAY_DECIMALS = 0  # 0 => integers, 1 => one decimal place
 MONTHS_ORDER = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
 ]
 
-# =========================
-# HELPERS & PRECISION
-# =========================
+# ================= HELPERS =================
 def to_decimal(x):
     if pd.isna(x):
         return Decimal('0')
@@ -116,23 +111,19 @@ def add_index(df):
     return df
 
 def stable_hash(obj):
-    """Create a short stable hash for a dataframe or dict-like object for unique keys."""
     try:
         s = json.dumps(obj, sort_keys=True, default=str)
     except Exception:
         s = str(obj)
     return hashlib.md5(s.encode()).hexdigest()[:8]
 
-# Unique element key generator to avoid StreamlitDuplicateElementId
 def get_unique_key(prefix: str):
     if "unique_key_counter" not in st.session_state:
         st.session_state.unique_key_counter = 0
     st.session_state.unique_key_counter += 1
     return f"{prefix}_{st.session_state.unique_key_counter}"
 
-# =========================
-# DATA LOADING & PREP
-# =========================
+# ================= DATA LOADING & PREP =================
 def load_excel_as_df(file):
     if file is None:
         return None
@@ -215,9 +206,7 @@ def prepare_df_for_analysis(df, cols_map):
     df = df[df[cols_map["Desc"]].str.lower() != "none"]
     return df
 
-# =========================
-# UI: file upload and detection
-# =========================
+# ================= UI: file upload =================
 st.set_page_config(layout="wide", page_title="Sales Intelligence")
 st.title("📊 Sales Intelligence Dashboard")
 
@@ -250,9 +239,7 @@ df_curr_original = df_curr.copy() if df_curr is not None else None
 df_prev_original = df_prev.copy() if df_prev is not None else None
 df_old_original = df_old.copy() if df_old is not None else None
 
-# =========================
-# SESSION STATE: main view tracking and safe filter reset
-# =========================
+# ================= SESSION STATE & FILTER RESET =================
 if "main_view" not in st.session_state:
     st.session_state.main_view = None
 
@@ -263,9 +250,7 @@ def reset_global_filters_for_prefix(prefixes=("l4l", "full")):
             if key in st.session_state:
                 del st.session_state[key]
 
-# =========================
-# Filter widget helper (robust)
-# =========================
+# ================= FILTER WIDGETS (robust) =================
 def create_and_apply_filters(df_ref, cols_map, prefix="global"):
     if df_ref is None:
         return None
@@ -310,9 +295,7 @@ def create_and_apply_filters(df_ref, cols_map, prefix="global"):
         d = d[d[cat_col] == sel_category]
     return d
 
-# =========================
-# Dashboard rendering (single place)
-# =========================
+# ================= DASHBOARD RENDERER =================
 def render_dashboard(df, df_original_all, cols_map, context_name="Dataset"):
     if df is None:
         st.info("No data for this view.")
@@ -328,8 +311,6 @@ def render_dashboard(df, df_original_all, cols_map, context_name="Dataset"):
     qty_col = cols_map["Quantity"]
 
     st.markdown("## 💰 KPI (Net / Qty)")
-    # Determine whether to use original totals to match Excel (no filters)
-    # We check both l4l and full prefixes to be safe
     no_filters = True
     for prefix in ("l4l", "full"):
         if st.session_state.get(f"filter_country_{prefix}", "All Countries") != "All Countries":
@@ -376,7 +357,6 @@ def render_dashboard(df, df_original_all, cols_map, context_name="Dataset"):
         with c2:
             plot_df = brand.copy()
             plot_df[net_col] = plot_df[net_col].apply(lambda x: float(x))
-            # unique key for plot to avoid duplicate element id
             key = get_unique_key(f"plot_brand_{context_name}")
             st.plotly_chart(px.pie(plot_df, names=brand_col, values=net_col), use_container_width=True, key=key)
 
@@ -510,12 +490,10 @@ def render_dashboard(df, df_original_all, cols_map, context_name="Dataset"):
     st.markdown("## 👥 Customer Impact (Growth vs Decline)")
     st.info("To compute customer-level growth/decline you need to compare two datasets (e.g., current vs previous). Use the main tabs to compare years.")
 
-# =========================
-# MAIN TABS
-# =========================
+# ================= MAIN UI =================
 tab_overview, tab_l4l, tab_full = st.tabs(["Overview (3-year L4L)", "Like-for-Like (L4L)", "Full Year Analysis"])
 
-# TAB: Overview (3-year L4L)
+# ---------- Overview ----------
 with tab_overview:
     if st.session_state.main_view != "overview":
         reset_global_filters_for_prefix(("l4l", "full"))
@@ -548,7 +526,7 @@ with tab_overview:
         key = get_unique_key("overview_bar")
         st.plotly_chart(px.bar(chart_df, x="Year", y="Net", text="Net", title="3-year L4L Net (YTD)"), use_container_width=True, key=key)
 
-# TAB: Like-for-Like (detailed) with year selection and month range
+# ---------- Like-for-Like ----------
 with tab_l4l:
     if st.session_state.main_view != "l4l":
         reset_global_filters_for_prefix(("l4l",))
@@ -572,10 +550,10 @@ with tab_l4l:
     else:
         col_a, col_b = st.columns(2)
         with col_a:
-            left_year = st.selectbox("Select first year (A)", available_years, index=0, key="l4l_left_year")
+            left_year = st.selectbox("Select first year (A)", available_years, index=0, key=get_unique_key("l4l_left_year"))
         with col_b:
             default_right = available_years[1] if len(available_years) > 1 else available_years[0]
-            right_year = st.selectbox("Select second year (B)", available_years, index=available_years.index(default_right), key="l4l_right_year")
+            right_year = st.selectbox("Select second year (B)", available_years, index=available_years.index(default_right), key=get_unique_key("l4l_right_year"))
 
         if left_year == right_year:
             st.warning("Choose two different years to compare.")
@@ -587,16 +565,17 @@ with tab_l4l:
             months_right = set(df_right[cols_right["Month"]].dropna().unique().tolist())
             months_union = sorted(list(months_left | months_right), key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99)
 
-            selected_months = st.multiselect("Select months to include in comparison", months_union, default=sorted(list(months_left & months_right), key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99))
+            default_selected = sorted(list(months_left & months_right), key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99)
+            selected_months = st.multiselect("Select months to include in comparison", months_union, default=default_selected, key=get_unique_key("l4l_months"))
 
             # If either side is Current Year, ensure selected months are subset of current-year months
-            if "Current Year" in (left_year, right_year):
-                current_months = set(df_curr_original[cols_curr["Month"]].dropna().unique().tolist()) if df_curr_original is not None else set()
+            if "Current Year" in (left_year, right_year) and df_curr_original is not None:
+                current_months = set(df_curr_original[cols_curr["Month"]].dropna().unique().tolist())
                 if not set(selected_months).issubset(current_months):
                     st.error("Selected months exceed the months available in Current Year file. Please select months within Current Year range.")
                     st.stop()
 
-            # Also ensure both selected datasets have data for all selected months
+            # Ensure both selected datasets have data for all selected months
             if not set(selected_months).issubset(months_left):
                 st.error(f"Left year ({left_year}) does not contain data for all selected months.")
                 st.stop()
@@ -646,7 +625,7 @@ with tab_l4l:
             st.markdown("### Right Year Dashboard")
             render_dashboard(right_filtered, df_right, cols_right, context_name=right_year)
 
-# TAB: Full Year Analysis with year selection
+# ---------- Full Year ----------
 with tab_full:
     if st.session_state.main_view != "full":
         reset_global_filters_for_prefix(("full",))
@@ -665,7 +644,7 @@ with tab_full:
     if not full_year_options:
         st.info("Upload at least one full-year file (previous year or two years ago) to use Full Year analysis.")
     else:
-        selected_full = st.selectbox("Select full-year dataset to analyze", full_year_options, key="full_selected_year")
+        selected_full = st.selectbox("Select full-year dataset to analyze", full_year_options, key=get_unique_key("full_selected_year"))
         df_selected, cols_selected = full_map[selected_full]
 
         filtered_selected = create_and_apply_filters(df_selected, cols_selected, prefix="full")
