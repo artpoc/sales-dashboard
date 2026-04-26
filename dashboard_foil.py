@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -17,7 +18,6 @@ def add_index(df: pd.DataFrame) -> pd.DataFrame:
     df.index = df.index + 1
     return df
 
-
 def to_decimal(x):
     """
     Robust conversion from Excel-like cell to Decimal.
@@ -26,8 +26,9 @@ def to_decimal(x):
       - spaces and NBSP as thousand separators
       - comma as decimal separator
       - parentheses for negatives: (1 234) -> -1234
-      - currency symbols (€, EUR, $, PLN, etc.)
+      - currency symbols (€, EUR, $, PLN, zł etc.)
       - stray characters
+    Returns Decimal('0') on failure.
     """
     try:
         if x is None:
@@ -66,7 +67,6 @@ def to_decimal(x):
     except (InvalidOperation, Exception):
         return Decimal('0')
 
-
 def safe_decimal(d) -> Decimal:
     try:
         if isinstance(d, Decimal):
@@ -74,7 +74,6 @@ def safe_decimal(d) -> Decimal:
         return to_decimal(d)
     except Exception:
         return Decimal('0')
-
 
 def decimal_sum(series: pd.Series) -> Decimal:
     """
@@ -91,7 +90,6 @@ def decimal_sum(series: pd.Series) -> Decimal:
             return Decimal(str(series.sum()))
         except Exception:
             return Decimal('0')
-
 
 def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
     d = safe_decimal(d)
@@ -110,7 +108,6 @@ def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
         except Exception:
             return "0"
 
-
 def calc_yoy_clean(new: Decimal, old: Decimal):
     new = safe_decimal(new)
     old = safe_decimal(old)
@@ -124,7 +121,6 @@ def calc_yoy_clean(new: Decimal, old: Decimal):
         return (new - old) / abs(old) * Decimal('100')
     except (InvalidOperation, Exception):
         return None
-
 
 def yoy_label(val, special: bool = False) -> str:
     if special:
@@ -140,7 +136,6 @@ def yoy_label(val, special: bool = False) -> str:
     if v < 0:
         return f"{v:.0f}% 🔴"
     return "0%"
-
 
 def normalize_category(x: str) -> str:
     x = str(x).lower()
@@ -182,13 +177,11 @@ def normalize_category(x: str) -> str:
         return "Articles"
     return "Other"
 
-
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
     "Invitations", "Articles", "Masks", "Pinata", "Plastic Cups"
 ]
-
 
 def sort_by_col(df: pd.DataFrame, col: str, ascending: bool = False) -> pd.DataFrame:
     """
@@ -207,13 +200,11 @@ def sort_by_col(df: pd.DataFrame, col: str, ascending: bool = False) -> pd.DataF
         except Exception:
             return df
 
-
 def extract_year_from_header(col_name: str) -> str:
     digits = "".join(ch for ch in str(col_name) if ch.isdigit())
     if digits:
         return digits
     return str(col_name)
-
 
 # ================= DATA LOADING FOR SINGLE-YEAR FILES =================
 def load_single_year_file(file, label: str):
@@ -261,6 +252,7 @@ def load_single_year_file(file, label: str):
             code_col = c
             break
     if code_col is None:
+        # fallback: first column that looks like code
         code_col = df_raw.columns[4] if len(df_raw.columns) > 4 else df_raw.columns[0]
 
     desc_col = None
@@ -314,6 +306,7 @@ def load_single_year_file(file, label: str):
     # Create cleaned df from raw for category-limited analyses
     df = df_raw.copy()
     df["Category Clean"] = df[cat_col].apply(normalize_category)
+    # Keep only allowed categories for category-specific analyses (but raw_df still contains everything)
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
     df = df[df[desc_col].notna()]
     df = df[df[desc_col].str.lower() != "none"]
@@ -333,7 +326,6 @@ def load_single_year_file(file, label: str):
         "Qty": qty_col,
     }
     return df, cols, year_name, df_raw
-
 
 # ================= FILTERS =================
 def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str, df_raw: pd.DataFrame = None):
@@ -403,7 +395,6 @@ def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str, df_r
         "df_filtered_raw": df_filtered_raw,
     }
     return df_filtered, meta
-
 
 def apply_shared_filters(dfs, cols, unique_prefix: str, raw_dfs=None):
     """
@@ -476,6 +467,11 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, raw_dfs=None):
     }
     return filtered_dfs, meta
 
+# ================= RENDER HELPERS =================
+def safe_plotly_pie(df_plot, names_col, values_col, title, key):
+    """Create pie chart and register unique key to avoid duplicate element id errors."""
+    fig = px.pie(df_plot, names=names_col, values=values_col, title=title)
+    st.plotly_chart(fig, use_container_width=True, key=key)
 
 # ================= DASHBOARD RENDERING (TWO-YEAR L4L STYLE) =================
 def render_two_year_dashboard(
@@ -552,10 +548,10 @@ def render_two_year_dashboard(
         pc1, pc2 = st.columns(2)
         with pc1:
             st.markdown(f"#### Category Pie {year_old}")
-            st.plotly_chart(px.pie(plot_cat, names="Category Clean", values=f"Net {year_old}"), use_container_width=True)
+            safe_plotly_pie(plot_cat, "Category Clean", f"Net {year_old}", f"Category Pie {year_old}", key=f"{unique_prefix}_catpie_old")
         with pc2:
             st.markdown(f"#### Category Pie {year_new}")
-            st.plotly_chart(px.pie(plot_cat, names="Category Clean", values=f"Net {year_new}"), use_container_width=True)
+            safe_plotly_pie(plot_cat, "Category Clean", f"Net {year_new}", f"Category Pie {year_new}", key=f"{unique_prefix}_catpie_new")
 
         cat_display = cat.copy()
         cat_display[f"Net {year_old}"] = cat_display[f"Net {year_old}"].apply(format_number_plain)
@@ -583,10 +579,10 @@ def render_two_year_dashboard(
     bc1, bc2 = st.columns(2)
     with bc1:
         st.markdown(f"#### Brand Pie {year_old}")
-        st.plotly_chart(px.pie(bplot, names=brand_col, values=f"Net {year_old}"), use_container_width=True)
+        safe_plotly_pie(bplot, brand_col, f"Net {year_old}", f"Brand Pie {year_old}", key=f"{unique_prefix}_brandpie_old")
     with bc2:
         st.markdown(f"#### Brand Pie {year_new}")
-        st.plotly_chart(px.pie(bplot, names=brand_col, values=f"Net {year_new}"), use_container_width=True)
+        safe_plotly_pie(bplot, brand_col, f"Net {year_new}", f"Brand Pie {year_new}", key=f"{unique_prefix}_brandpie_new")
 
     brand_display = brand.copy()
     brand_display[f"Net {year_old}"] = brand_display[f"Net {year_old}"].apply(format_number_plain)
@@ -670,6 +666,7 @@ def render_two_year_dashboard(
     ):
         with tab:
             p = df_src.groupby(code_col).agg({desc_col: "first", "Category Clean": "first", net_col: decimal_sum}).reset_index()
+            # include only SKUs with positive value
             p = p[p[net_col].apply(lambda x: safe_decimal(x) > 0)]
             if p.empty:
                 st.info("No sales in this period.")
@@ -718,9 +715,9 @@ def render_two_year_dashboard(
                     a.loc[(a["cum"] > Decimal('0.7')) & (a["cum"] <= Decimal('0.9')), "segment"] = "B"
                     seg_counts = a["segment"].value_counts()
                     st.write(f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}")
-                    a_disp = a[[code_col, desc_col, net_col, "segment"]].copy()
-                    a_disp[net_col] = a_disp[net_col].apply(format_number_plain)
-                    st.dataframe(add_index(a_disp))
+                    a_display = a[[code_col, desc_col, net_col, "segment"]].copy()
+                    a_display[net_col] = a_display[net_col].apply(format_number_plain)
+                    st.dataframe(add_index(a_display))
 
     st.divider()
 
@@ -731,6 +728,7 @@ def render_two_year_dashboard(
     yoy = pd.merge(yoy_df_new, yoy_df_old, on=code_col, how="outer").fillna(Decimal('0'))
     yoy["YoY"] = yoy.apply(lambda x: calc_yoy_clean(x[net_new], x[net_old]), axis=1)
     yoy["YoY %"] = yoy["YoY"].apply(yoy_label)
+    # default sort: newer year descending
     yoy = sort_by_col(yoy, net_new, ascending=False)
 
     yoy_disp = yoy.copy()
@@ -788,7 +786,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # CUSTOMER IMPACT (Growth vs Decline) - not shown in Full Year mode
+    # CUSTOMER IMPACT
     st.markdown("### Customer Impact (Growth vs Decline)")
 
     all_categories = sorted(df_new["Category Clean"].dropna().unique().tolist() + df_old["Category Clean"].dropna().unique().tolist())
@@ -842,7 +840,6 @@ def render_two_year_dashboard(
         d_disp["Change Value"] = d_disp["Change Value"].apply(format_number_plain)
         st.dataframe(add_index(d_disp[[cust_col, f"Net {year_old}", f"Net {year_new}", "Change Value", "YoY %"]]))
 
-
 # ================= DASHBOARD FOR SINGLE YEAR (FULL YEAR ANALYSIS) =================
 def render_single_year_dashboard(df: pd.DataFrame, cols: dict, year_name: str, unique_prefix: str, category_filter: str, df_raw: pd.DataFrame = None):
     """
@@ -879,7 +876,7 @@ def render_single_year_dashboard(df: pd.DataFrame, cols: dict, year_name: str, u
         plot_cat[f"Net {year_name}"] = plot_cat[f"Net {year_name}"].apply(lambda v: float(safe_decimal(v)))
 
         st.markdown(f"#### Category Pie {year_name}")
-        st.plotly_chart(px.pie(plot_cat, names="Category Clean", values=f"Net {year_name}"), use_container_width=True)
+        safe_plotly_pie(plot_cat, "Category Clean", f"Net {year_name}", f"Category Pie {year_name}", key=f"{unique_prefix}_full_catpie_{year_name}")
 
         cat_disp = cat.copy()
         cat_disp[f"Net {year_name}"] = cat_disp[f"Net {year_name}"].apply(format_number_plain)
@@ -895,7 +892,7 @@ def render_single_year_dashboard(df: pd.DataFrame, cols: dict, year_name: str, u
     bplot[f"Net {year_name}"] = bplot[f"Net {year_name}"].apply(lambda v: float(safe_decimal(v)))
 
     st.markdown(f"#### Brand Pie {year_name}")
-    st.plotly_chart(px.pie(bplot, names=brand_col, values=f"Net {year_name}"), use_container_width=True)
+    safe_plotly_pie(bplot, brand_col, f"Net {year_name}", f"Brand Pie {year_name}", key=f"{unique_prefix}_full_brandpie_{year_name}")
 
     brand_disp = brand.copy()
     brand_disp[f"Net {year_name}"] = brand_disp[f"Net {year_name}"].apply(format_number_plain)
@@ -986,7 +983,6 @@ def render_single_year_dashboard(df: pd.DataFrame, cols: dict, year_name: str, u
     disp = top5.copy()
     disp[f"Net {year_name}"] = disp[f"Net {year_name}"].apply(format_number_plain)
     st.dataframe(add_index(disp[["Category Clean", f"Net {year_name}"]]))
-
 
 # ================= MAIN APP =================
 st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
