@@ -715,9 +715,9 @@ def render_two_year_dashboard(
                     a.loc[(a["cum"] > Decimal('0.7')) & (a["cum"] <= Decimal('0.9')), "segment"] = "B"
                     seg_counts = a["segment"].value_counts()
                     st.write(f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}")
-                    a_display = a[[code_col, desc_col, net_col, "segment"]].copy()
-                    a_display[net_col] = a_display[net_col].apply(format_number_plain)
-                    st.dataframe(add_index(a_display))
+                    a_disp = a[[code_col, desc_col, net_col, "segment"]].copy()
+                    a_disp[net_col] = a_disp[net_col].apply(format_number_plain)
+                    st.dataframe(add_index(a_disp))
 
     st.divider()
 
@@ -991,11 +991,11 @@ st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 st.markdown("### Excel Upload (3 separate years)")
 c_up1, c_up2, c_up3 = st.columns(3)
 with c_up1:
-    file_two_years_ago = st.file_uploader("Older Year (2 years ago)", type=["xlsx"])
+    file_two_years_ago = st.file_uploader("Older Year (2 years ago)", type=["xlsx"], key="upload_old2")
 with c_up2:
-    file_prev_year = st.file_uploader("Previous Year", type=["xlsx"])
+    file_prev_year = st.file_uploader("Previous Year", type=["xlsx"], key="upload_prev")
 with c_up3:
-    file_current_year = st.file_uploader("Current Year (YTD)", type=["xlsx"])
+    file_current_year = st.file_uploader("Current Year (YTD)", type=["xlsx"], key="upload_curr")
 
 if not file_prev_year and not file_current_year and not file_two_years_ago:
     st.info("Upload at least one Excel file.")
@@ -1137,6 +1137,7 @@ with tab_l4l:
         st.warning("Detailed L4L requires at least two year files.")
     else:
         st.markdown("#### Select years (older on the left, newer on the right)")
+        # Ensure older on left, newer on right in UI
         left_year_option = st.selectbox("Older year", year_options, index=0, key="l4l_left_year")
         right_year_option = st.selectbox("Newer year", year_options, index=1 if len(year_options) > 1 else 0, key="l4l_right_year")
 
@@ -1228,4 +1229,5 @@ with tab_full:
 
         # For full year KPI totals we use df_selected_raw filtered by selected filters (meta["df_filtered_raw"])
         df_filtered_raw = meta.get("df_filtered_raw", None)
+        # In Full Year mode we hide Customer Impact (per request)
         render_single_year_dashboard(filtered_selected, cols_selected, selected_full, unique_prefix="full_dash", category_filter=meta["category"], df_raw=df_filtered_raw)
