@@ -23,38 +23,32 @@ def to_decimal(x):
     Robust conversion from Excel-like cell to Decimal.
     Handles:
       - None / NaN / empty / '-' -> 0
-      - spaces and non-breaking spaces as thousand separators
+      - spaces and NBSP as thousand separators
       - comma as decimal separator
       - parentheses for negatives: (1 234) -> -1234
       - currency symbols (€, EUR, $, PLN, etc.)
       - stray characters
-    Returns Decimal('0') on failure.
     """
     try:
         if x is None:
             return Decimal('0')
-        # If already Decimal
         if isinstance(x, Decimal):
             return x
-        # If numeric types
         if isinstance(x, (int, float)):
             return Decimal(str(x))
         s = str(x).strip()
         if s == "" or s.lower() in {"nan", "none", "-"}:
             return Decimal('0')
 
-        # Detect parentheses negative format
         negative = False
         if s.startswith("(") and s.endswith(")"):
             negative = True
             s = s[1:-1].strip()
 
-        # Remove currency symbols and letters (EUR, PLN, zł, € etc.)
-        # Keep digits, comma, dot, minus
-        # Replace NBSP and regular spaces
+        # remove spaces (including NBSP) and unify decimal separator
         s = s.replace("\xa0", "").replace(" ", "")
         s = s.replace(",", ".")
-        # Remove common currency letters/symbols
+        # remove currency letters/symbols and any non-digit/dot/minus
         s = re.sub(r"[^\d\.\-]", "", s)
 
         if s == "" or s == "." or s == "-":
@@ -106,7 +100,6 @@ def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
             q = d.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
             return f"{int(q):,}".replace(",", " ")
         q = d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
-        # format with one decimal and space thousands
         s = f"{q:.1f}"
         parts = s.split(".")
         parts[0] = f"{int(Decimal(parts[0])):,}".replace(",", " ")
@@ -268,7 +261,6 @@ def load_single_year_file(file, label: str):
             code_col = c
             break
     if code_col is None:
-        # fallback: first column that looks like code
         code_col = df_raw.columns[4] if len(df_raw.columns) > 4 else df_raw.columns[0]
 
     desc_col = None
@@ -322,7 +314,6 @@ def load_single_year_file(file, label: str):
     # Create cleaned df from raw for category-limited analyses
     df = df_raw.copy()
     df["Category Clean"] = df[cat_col].apply(normalize_category)
-    # Keep only allowed categories for category-specific analyses (but raw_df still contains everything)
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
     df = df[df[desc_col].notna()]
     df = df[df[desc_col].str.lower() != "none"]
@@ -604,8 +595,8 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # TOP PRODUCTS
-    st.markdown("### Top Products")
+    # TOP PRODUCTS (aggregated by product code)
+    st.markdown("### Top Products (aggregated by Product Code)")
 
     if df_new.empty and df_old.empty:
         st.info("No data for selected filters.")
@@ -679,7 +670,6 @@ def render_two_year_dashboard(
     ):
         with tab:
             p = df_src.groupby(code_col).agg({desc_col: "first", "Category Clean": "first", net_col: decimal_sum}).reset_index()
-            # include only SKUs with positive value
             p = p[p[net_col].apply(lambda x: safe_decimal(x) > 0)]
             if p.empty:
                 st.info("No sales in this period.")
@@ -734,7 +724,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # L4L TABLE
+    # L4L TABLE (aggregated by product code)
     st.markdown("### L4L Table")
     yoy_df_new = df_new.groupby(code_col).agg({desc_col: "first", net_new: decimal_sum, qty_new: decimal_sum}).reset_index()
     yoy_df_old = df_old.groupby(code_col).agg({net_old: decimal_sum, qty_old: decimal_sum}).reset_index()
@@ -798,7 +788,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # CUSTOMER IMPACT
+    # CUSTOMER IMPACT (Growth vs Decline) - not shown in Full Year mode
     st.markdown("### Customer Impact (Growth vs Decline)")
 
     all_categories = sorted(df_new["Category Clean"].dropna().unique().tolist() + df_old["Category Clean"].dropna().unique().tolist())
@@ -914,7 +904,7 @@ def render_single_year_dashboard(df: pd.DataFrame, cols: dict, year_name: str, u
     st.divider()
 
     # TOP PRODUCTS
-    st.markdown("### Top Products")
+    st.markdown("### Top Products (aggregated by Product Code)")
     if df.empty:
         st.info("No data for selected filters.")
     else:
