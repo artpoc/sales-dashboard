@@ -1,10 +1,14 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, getcontext
 
 # ===== PERFECT ENGINE INTEGRATION =====
-from decimal import Decimal, ROUND_HALF_UP, getcontext
 getcontext().prec = 28
 
 def clean_number(x):
-    import pandas as pd
+    if isinstance(x, Decimal):
+        return x
     if x is None or pd.isna(x):
         return Decimal('0')
     s = str(x)
@@ -12,7 +16,10 @@ def clean_number(x):
     s = s.replace(",", ".")
     if s in ["", "-", "nan", "None"]:
         return Decimal('0')
-    return Decimal(s)
+    try:
+        return Decimal(s)
+    except InvalidOperation:
+        return Decimal('0')
 
 def sum_decimal(series):
     total = Decimal('0')
@@ -22,122 +29,12 @@ def sum_decimal(series):
 
 def to_int(d):
     try:
-        return int(d.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        return int(clean_number(d).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     except:
         return 0
 
 def yoy_calc(new, old):
     new, old = clean_number(new), clean_number(old)
-    if old == 0:
-        return Decimal('100') if new > 0 else Decimal('0')
-    return (new-old)/old*Decimal('100')
-
-def yoy_label(v):
-    try:
-        v = float(v)
-    except:
-        return "0%"
-    if v > 0:
-        return f"+{v:.0f}% 🟢"
-    elif v < 0:
-        return f"{v:.0f}% 🔴"
-    return "0%"
-
-def fix_sku(df, col):
-    df[col] = df[col].astype(str).str.strip()
-    return df
-# ===== END ENGINE =====
-
-
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-
-# ================= CONFIG =================
-DISPLAY_DECIMALS = 0  # 0 or 1
-MONTHS_ORDER = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-]
-
-# ================= HELPERS & CORE UTILS =================
-def add_index(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.reset_index(drop=True)
-    df.index = df.index + 1
-    return df
-
-def to_decimal(x):
-    """Convert Excel-like cell to Decimal, matching Excel behavior as close as possible."""
-    if x is None or pd.isna(x):
-        return Decimal('0')
-    try:
-        if isinstance(x, (int, float)):
-            return Decimal(str(x))
-        s = str(x).strip()
-        if s in ["", "-", "None", "nan"]:
-            return Decimal('0')
-        # Usuwa zwykłe spacje, twarde spacje, wąskie spacje i zamienia przecinki na kropki
-        s = s.replace(" ", "").replace("\xa0", "").replace("\u202f", "").replace(",", ".")
-        return Decimal(s)
-    except Exception:
-        return Decimal('0')
-
-def safe_decimal(d) -> Decimal:
-    try:
-        if isinstance(d, Decimal):
-            return d
-        return to_decimal(d)
-    except Exception:
-        return Decimal('0')
-
-def decimal_sum(series: pd.Series) -> Decimal:
-    try:
-        return sum((safe_decimal(v) for v in series.tolist()), Decimal('0'))
-    except Exception:
-        try:
-            return Decimal(str(series.sum()))
-        except Exception:
-            return Decimal('0')
-
-def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
-    """Format into string - strictly used for Metrics/KPIs (not DataFrames!)"""
-    d = safe_decimal(d)
-    try:
-        if decimals == 0:
-            q = d.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
-            return f"{int(q)}"
-        q = d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
-        return f"{q:.1f}"
-    except (InvalidOperation, Exception):
-        try:
-            return str(int(d))
-        except Exception:
-            return "0"
-
-def to_display_num(d):
-    """Convert Decimal into int/float so Streamlit sorts it numerically in DataFrames."""
-    d = safe_decimal(d)
-    try:
-        if DISPLAY_DECIMALS == 0:
-            return int(d.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
-        else:
-            return float(d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))
-    except Exception:
-        return 0
-
-def to_display_perc(d):
-    """Convert YoY decimal to standard float for mathematical sorting in DataFrames."""
-    if d is None:
-        return 0.0
-    try:
-        return float(d)
-    except Exception:
-        return 0.0
-
-def calc_yoy_clean(new: Decimal, old: Decimal):
-    new = safe_decimal(new)
-    old = safe_decimal(old)
     try:
         if old < 0 and new == 0:
             return None
@@ -160,54 +57,91 @@ def yoy_label(val, special: bool = False) -> str:
         return "0%"
     if v > 0:
         return f"+{v:.0f}% 🟢"
-    if v < 0:
+    elif v < 0:
         return f"{v:.0f}% 🔴"
     return "0%"
 
+def fix_sku(df, col):
+    df[col] = df[col].astype(str).str.strip()
+    return df
+# ===== END ENGINE =====
+
+# ================= CONFIG =================
+DISPLAY_DECIMALS = 0  # 0 or 1
+MONTHS_ORDER = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+]
+
+# ================= HELPERS & CORE UTILS =================
+def add_index(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.reset_index(drop=True)
+    df.index = df.index + 1
+    return df
+
+def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
+    """Format into string - strictly used for Metrics/KPIs (not DataFrames!)"""
+    d = clean_number(d)
+    try:
+        if decimals == 0:
+            q = d.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+            return f"{int(q)}"
+        q = d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
+        return f"{q:.1f}"
+    except (InvalidOperation, Exception):
+        try:
+            return str(int(d))
+        except Exception:
+            return "0"
+
+def to_display_num(d):
+    """Convert Decimal into int/float so Streamlit sorts it numerically in DataFrames."""
+    d = clean_number(d)
+    try:
+        if DISPLAY_DECIMALS == 0:
+            return int(d.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        else:
+            return float(d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))
+    except Exception:
+        return 0
+
+def to_display_perc(d):
+    """Convert YoY decimal to standard float for mathematical sorting in DataFrames."""
+    if d is None:
+        return 0.0
+    try:
+        return float(d)
+    except Exception:
+        return 0.0
+
 def normalize_category(x: str) -> str:
     x = str(x).lower()
-    if "napkin" in x:
-        return "Napkins"
-    if "hat" in x:
-        return "Hats"
-    if "banner" in x:
-        return "Banner"
-    if "straw" in x:
-        return "Straws"
-    if "bag" in x:
-        return "Bags"
-    if "plate" in x:
-        return "Plates"
-    if "paper cup" in x:
-        return "Paper Cups"
-    if "plastic cup" in x:
-        return "Plastic Cups"
-    if "tablecover" in x:
-        return "Tablecover"
-    if "reusable" in x:
-        return "Reusable"
-    if "foil" in x:
-        return "Foil"
-    if "wood" in x:
-        return "Wooden"
-    if "candle" in x:
-        return "Candles"
-    if "latex" in x:
-        return "Latex"
-    if "invitation" in x:
-        return "Invitations"
-    if "mask" in x:
-        return "Masks"
-    if "pinata" in x:
-        return "Pinata"
-    if "article" in x:
-        return "Articles"
+    if "napkin" in x: return "Napkins"
+    if "hat" in x: return "Hats"
+    if "banner" in x: return "Banner"
+    if "straw" in x: return "Straws"
+    if "bag" in x: return "Bags"
+    if "plate" in x: return "Plates"
+    if "paper cup" in x: return "Paper Cups"
+    if "plastic cup" in x: return "Plastic Cups"
+    if "tablecover" in x: return "Tablecover"
+    if "reusable" in x: return "Reusable"
+    if "foil" in x: return "Foil"
+    if "wood" in x: return "Wooden"
+    if "candle" in x: return "Candles"
+    if "latex" in x: return "Latex"
+    if "invitation" in x: return "Invitations"
+    if "mask" in x: return "Masks"
+    if "pinata" in x: return "Pinata"
+    if "article" in x: return "Articles"
+    if "horn" in x: return "Horns"
     return "Other"
 
+# Added 'Horns' and 'Other' to prevent ANY row from being excluded
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
-    "Invitations", "Articles", "Masks", "Pinata", "Plastic Cups"
+    "Invitations", "Articles", "Masks", "Pinata", "Plastic Cups", "Horns", "Other"
 ]
 
 def sort_by_col_desc(df: pd.DataFrame, col: str) -> pd.DataFrame:
@@ -218,7 +152,7 @@ def sort_by_col_desc(df: pd.DataFrame, col: str) -> pd.DataFrame:
     except Exception:
         tmp = df.copy()
         try:
-            tmp[col] = tmp[col].apply(lambda x: float(safe_decimal(x)))
+            tmp[col] = tmp[col].apply(lambda x: float(clean_number(x)))
             return tmp.sort_values(by=col, ascending=False)
         except Exception:
             return df
@@ -242,56 +176,49 @@ def load_single_year_file(file, label: str):
         if str(c).strip().lower() == "month":
             month_col = c
             break
-    if month_col is None:
-        month_col = df.columns[0]
+    if month_col is None: month_col = df.columns[0]
 
     customer_col = None
     for c in df.columns:
         if "customer" in str(c).lower():
             customer_col = c
             break
-    if customer_col is None:
-        customer_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+    if customer_col is None: customer_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
 
     country_col = None
     for c in df.columns:
         if "country" in str(c).lower():
             country_col = c
             break
-    if country_col is None:
-        country_col = df.columns[2] if len(df.columns) > 2 else df.columns[0]
+    if country_col is None: country_col = df.columns[2] if len(df.columns) > 2 else df.columns[0]
 
     code_col = None
     for c in df.columns:
         if "art" in str(c).lower() and "nr" in str(c).lower():
             code_col = c
             break
-    if code_col is None:
-        code_col = df.columns[4] if len(df.columns) > 4 else df.columns[0]
+    if code_col is None: code_col = df.columns[4] if len(df.columns) > 4 else df.columns[0]
 
     desc_col = None
     for c in df.columns:
         if "description" in str(c).lower():
             desc_col = c
             break
-    if desc_col is None:
-        desc_col = df.columns[5] if len(df.columns) > 5 else df.columns[0]
+    if desc_col is None: desc_col = df.columns[5] if len(df.columns) > 5 else df.columns[0]
 
     brand_col = None
     for c in df.columns:
         if "brand" in str(c).lower():
             brand_col = c
             break
-    if brand_col is None:
-        brand_col = df.columns[6] if len(df.columns) > 6 else df.columns[0]
+    if brand_col is None: brand_col = df.columns[6] if len(df.columns) > 6 else df.columns[0]
 
     cat_col = None
     for c in df.columns:
         if "category" in str(c).lower():
             cat_col = c
             break
-    if cat_col is None:
-        cat_col = df.columns[7] if len(df.columns) > 7 else df.columns[0]
+    if cat_col is None: cat_col = df.columns[7] if len(df.columns) > 7 else df.columns[0]
 
     net_col = None
     qty_col = None
@@ -301,24 +228,22 @@ def load_single_year_file(file, label: str):
             net_col = c
         elif qty_col is None and ("qty" in cl or "quantity" in cl or "pcs" in cl):
             qty_col = c
-    if net_col is None:
-        net_col = df.columns[-2] if len(df.columns) >= 2 else df.columns[-1]
-    if qty_col is None:
-        qty_col = df.columns[-1]
+    if net_col is None: net_col = df.columns[-2] if len(df.columns) >= 2 else df.columns[-1]
+    if qty_col is None: qty_col = df.columns[-1]
 
-    df[net_col] = df[net_col].apply(to_decimal)
-    df[qty_col] = df[qty_col].apply(to_decimal)
+    df[net_col] = df[net_col].apply(clean_number)
+    df[qty_col] = df[qty_col].apply(clean_number)
 
     for c in [month_col, customer_col, country_col, code_col, desc_col, brand_col, cat_col]:
         if c in df.columns:
             df[c] = df[c].astype(str).fillna("").replace("nan", "")
-            # Kluczowe dla agregacji: czyścimy kody SKU z białych znaków (np. niechciane spacje z excela)
             if c == code_col:
                 df[c] = df[c].str.strip()
         else:
             df[c] = ""
 
     df["Category Clean"] = df[cat_col].apply(normalize_category)
+    # Wszystkie kody SKU są uwzględniane dzięki dodaniu kategorii 'Other' w dozwolonych kategoriach
     df = df[df["Category Clean"].isin(ALLOWED_CATEGORIES)]
     df = df[df[desc_col].notna()]
     df = df[df[desc_col].str.lower() != "none"]
@@ -461,23 +386,23 @@ def render_two_year_dashboard(
 
     st.markdown(f"### KPI ({year_old} vs {year_new})")
 
-    s_new = decimal_sum(df_new[net_new])
-    s_old = decimal_sum(df_old[net_old])
-    q_new = decimal_sum(df_new[qty_new])
-    q_old = decimal_sum(df_old[qty_old])
+    s_new = sum_decimal(df_new[net_new])
+    s_old = sum_decimal(df_old[net_old])
+    q_new = sum_decimal(df_new[qty_new])
+    q_old = sum_decimal(df_old[qty_old])
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(f"Net {year_old} (EUR)", format_number_plain(s_old))
     c2.metric(
         f"Net {year_new} (EUR)",
         format_number_plain(s_new),
-        yoy_label(calc_yoy_clean(s_new, s_old)),
+        yoy_label(yoy_calc(s_new, s_old)),
     )
     c3.metric(f"Qty {year_old} (PCS)", format_number_plain(q_old))
     c4.metric(
         f"Qty {year_new} (PCS)",
         format_number_plain(q_new),
-        yoy_label(calc_yoy_clean(q_new, q_old)),
+        yoy_label(yoy_calc(q_new, q_old)),
     )
 
     st.divider()
@@ -488,32 +413,30 @@ def render_two_year_dashboard(
 
         cat_new = (
             df_new.groupby("Category Clean")
-            .agg({net_new: decimal_sum})
+            .agg({net_new: sum_decimal})
             .reset_index()
             .rename(columns={net_new: f"Net {year_new}"})
         )
         cat_old = (
             df_old.groupby("Category Clean")
-            .agg({net_old: decimal_sum})
+            .agg({net_old: sum_decimal})
             .reset_index()
             .rename(columns={net_old: f"Net {year_old}"})
         )
-        cat = pd.merge(cat_new, cat_old, on="Category Clean", how="outer").fillna(
-            Decimal('0')
-        )
+        cat = pd.merge(cat_new, cat_old, on="Category Clean", how="outer").fillna(Decimal('0'))
 
         cat[f"YoY {year_new} vs {year_old}"] = cat.apply(
-            lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
+            lambda x: yoy_calc(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
         )
 
         cat = sort_by_col_desc(cat, f"Net {year_new}")
 
         plot_cat = cat.copy()
         plot_cat[f"Net {year_new}"] = plot_cat[f"Net {year_new}"].apply(
-            lambda v: float(safe_decimal(v))
+            lambda v: float(clean_number(v))
         )
         plot_cat[f"Net {year_old}"] = plot_cat[f"Net {year_old}"].apply(
-            lambda v: float(safe_decimal(v))
+            lambda v: float(clean_number(v))
         )
 
         pc1, pc2 = st.columns(2)
@@ -555,32 +478,30 @@ def render_two_year_dashboard(
 
     brand_new = (
         df_new.groupby(brand_col)
-        .agg({net_new: decimal_sum})
+        .agg({net_new: sum_decimal})
         .reset_index()
         .rename(columns={net_new: f"Net {year_new}"})
     )
     brand_old = (
         df_old.groupby(brand_col)
-        .agg({net_old: decimal_sum})
+        .agg({net_old: sum_decimal})
         .reset_index()
         .rename(columns={net_old: f"Net {year_old}"})
     )
-    brand = pd.merge(brand_new, brand_old, on=brand_col, how="outer").fillna(
-        Decimal('0')
-    )
+    brand = pd.merge(brand_new, brand_old, on=brand_col, how="outer").fillna(Decimal('0'))
 
     brand[f"YoY {year_new} vs {year_old}"] = brand.apply(
-        lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
+        lambda x: yoy_calc(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
     )
 
     brand = sort_by_col_desc(brand, f"Net {year_new}")
 
     bplot = brand.copy()
     bplot[f"Net {year_old}"] = bplot[f"Net {year_old}"].apply(
-        lambda v: float(safe_decimal(v))
+        lambda v: float(clean_number(v))
     )
     bplot[f"Net {year_new}"] = bplot[f"Net {year_new}"].apply(
-        lambda v: float(safe_decimal(v))
+        lambda v: float(clean_number(v))
     )
 
     bc1, bc2 = st.columns(2)
@@ -634,23 +555,23 @@ def render_two_year_dashboard(
                 base_old.groupby(code_col)
                 .agg({
                     desc_col: "first",
-                    net_old: decimal_sum,
-                    qty_old: decimal_sum,
+                    net_old: sum_decimal,
+                    qty_old: sum_decimal,
                 })
                 .reset_index()
             )
-            d_old = d_old[d_old[net_old].apply(lambda x: safe_decimal(x) > 0)]
+            d_old = d_old[d_old[net_old].apply(lambda x: clean_number(x) > 0)]
             d_old = sort_by_col_desc(d_old, net_old)
             if d_old.empty:
                 st.info("No sales in older year.")
             else:
                 top_old = d_old.head(10)
-                total_old_val = decimal_sum(d_old[net_old])
+                total_old_val = sum_decimal(d_old[net_old])
                 if total_old_val == 0:
                     top_old["Share (%)"] = 0.0
                 else:
                     top_old["Share (%)"] = top_old[net_old].apply(
-                        lambda x: to_display_perc(safe_decimal(x) / total_old_val * Decimal('100'))
+                        lambda x: to_display_perc(clean_number(x) / total_old_val * Decimal('100'))
                     )
                 disp_old = top_old.copy()
                 disp_old[net_old] = disp_old[net_old].apply(to_display_num)
@@ -663,7 +584,7 @@ def render_two_year_dashboard(
                 )
                 try:
                     share_top = (
-                        decimal_sum(top_old[net_old]) / total_old_val * Decimal('100')
+                        sum_decimal(top_old[net_old]) / total_old_val * Decimal('100')
                     )
                 except (InvalidOperation, Exception):
                     share_top = Decimal('0')
@@ -675,23 +596,23 @@ def render_two_year_dashboard(
                 base_new.groupby(code_col)
                 .agg({
                     desc_col: "first",
-                    net_new: decimal_sum,
-                    qty_new: decimal_sum,
+                    net_new: sum_decimal,
+                    qty_new: sum_decimal,
                 })
                 .reset_index()
             )
-            d_new = d_new[d_new[net_new].apply(lambda x: safe_decimal(x) > 0)]
+            d_new = d_new[d_new[net_new].apply(lambda x: clean_number(x) > 0)]
             d_new = sort_by_col_desc(d_new, net_new)
             if d_new.empty:
                 st.info("No sales in newer year.")
             else:
                 top_new = d_new.head(10)
-                total_new_val = decimal_sum(d_new[net_new])
+                total_new_val = sum_decimal(d_new[net_new])
                 if total_new_val == 0:
                     top_new["Share (%)"] = 0.0
                 else:
                     top_new["Share (%)"] = top_new[net_new].apply(
-                        lambda x: to_display_perc(safe_decimal(x) / total_new_val * Decimal('100'))
+                        lambda x: to_display_perc(clean_number(x) / total_new_val * Decimal('100'))
                     )
                 disp_new = top_new.copy()
                 disp_new[net_new] = disp_new[net_new].apply(to_display_num)
@@ -704,7 +625,7 @@ def render_two_year_dashboard(
                 )
                 try:
                     share_top_n = (
-                        decimal_sum(top_new[net_new]) / total_new_val * Decimal('100')
+                        sum_decimal(top_new[net_new]) / total_new_val * Decimal('100')
                     )
                 except (InvalidOperation, Exception):
                     share_top_n = Decimal('0')
@@ -727,22 +648,22 @@ def render_two_year_dashboard(
                 .agg({
                     desc_col: "first",
                     "Category Clean": "first",
-                    net_col: decimal_sum,
+                    net_col: sum_decimal,
                 })
                 .reset_index()
             )
-            p = p[p[net_col].apply(lambda x: safe_decimal(x) > 0)]
+            p = p[p[net_col].apply(lambda x: clean_number(x) > 0)]
             if p.empty:
                 st.info("No sales in this period.")
             else:
                 p = sort_by_col_desc(p, net_col)
                 p["cum_value"] = p[net_col].cumsum()
-                total_value = decimal_sum(p[net_col])
+                total_value = sum_decimal(p[net_col])
                 if total_value == 0:
                     st.info("Total value is zero.")
                 else:
                     p["cum_share"] = p["cum_value"].apply(
-                        lambda x: safe_decimal(x) / total_value
+                        lambda x: clean_number(x) / total_value
                     )
                     top80 = p[p["cum_share"] <= Decimal('0.8')]
                     total_sku = p[code_col].nunique()
@@ -773,20 +694,20 @@ def render_two_year_dashboard(
         with tab:
             a = (
                 df_src.groupby(code_col)
-                .agg({desc_col: "first", net_col: decimal_sum})
+                .agg({desc_col: "first", net_col: sum_decimal})
                 .reset_index()
             )
-            a = a[a[net_col].apply(lambda x: safe_decimal(x) > 0)]
+            a = a[a[net_col].apply(lambda x: clean_number(x) > 0)]
             if a.empty:
                 st.info("No sales in this period.")
             else:
                 a = sort_by_col_desc(a, net_col).reset_index(drop=True)
-                total_val = decimal_sum(a[net_col])
+                total_val = sum_decimal(a[net_col])
                 if total_val == 0:
                     st.info("Total is zero.")
                 else:
                     a["cum"] = a[net_col].cumsum().apply(
-                        lambda x: safe_decimal(x) / total_val
+                        lambda x: clean_number(x) / total_val
                     )
                     a["segment"] = "C"
                     a.loc[a["cum"] <= Decimal('0.7'), "segment"] = "A"
@@ -808,19 +729,19 @@ def render_two_year_dashboard(
     st.markdown("### L4L Table")
     yoy_df_new = (
         df_new.groupby(code_col)
-        .agg({desc_col: "first", net_new: decimal_sum, qty_new: decimal_sum})
+        .agg({desc_col: "first", net_new: sum_decimal, qty_new: sum_decimal})
         .reset_index()
     )
     yoy_df_old = (
         df_old.groupby(code_col)
-        .agg({net_old: decimal_sum, qty_old: decimal_sum})
+        .agg({net_old: sum_decimal, qty_old: sum_decimal})
         .reset_index()
     )
     yoy = pd.merge(yoy_df_new, yoy_df_old, on=code_col, how="outer").fillna(
         Decimal('0')
     )
     yoy["YoY"] = yoy.apply(
-        lambda x: calc_yoy_clean(x[net_new], x[net_old]), axis=1
+        lambda x: yoy_calc(x[net_new], x[net_old]), axis=1
     )
     yoy = sort_by_col_desc(yoy, net_new)
 
@@ -854,13 +775,13 @@ def render_two_year_dashboard(
 
     cat_new_ins = (
         df_new.groupby("Category Clean")
-        .agg({net_new: decimal_sum})
+        .agg({net_new: sum_decimal})
         .reset_index()
         .rename(columns={net_new: f"Net {year_new}"})
     )
     cat_old_ins = (
         df_old.groupby("Category Clean")
-        .agg({net_old: decimal_sum})
+        .agg({net_old: sum_decimal})
         .reset_index()
         .rename(columns={net_old: f"Net {year_old}"})
     )
@@ -868,7 +789,7 @@ def render_two_year_dashboard(
         Decimal('0')
     )
     cat_ins["YoY"] = cat_ins.apply(
-        lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
+        lambda x: yoy_calc(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
     )
     cat_ins = sort_by_col_desc(cat_ins, f"Net {year_new}")
 
@@ -974,13 +895,13 @@ def render_two_year_dashboard(
 
     cust_new = (
         df_imp_new.groupby(cust_col)
-        .agg({net_new: decimal_sum})
+        .agg({net_new: sum_decimal})
         .reset_index()
         .rename(columns={net_new: f"Net {year_new}"})
     )
     cust_old = (
         df_imp_old.groupby(cust_col)
-        .agg({net_old: decimal_sum})
+        .agg({net_old: sum_decimal})
         .reset_index()
         .rename(columns={net_old: f"Net {year_old}"})
     )
@@ -993,7 +914,7 @@ def render_two_year_dashboard(
         (impact[f"Net {year_old}"] < 0) & (impact[f"Net {year_new}"] == 0)
     )
     impact["YoY"] = impact.apply(
-        lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
+        lambda x: yoy_calc(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
     )
 
     st.write("#### Top Growth Drivers")
@@ -1069,8 +990,8 @@ def render_single_year_dashboard(
 
     st.markdown(f"### KPI ({year_name})")
 
-    s_net = decimal_sum(df[net_col])
-    s_qty = decimal_sum(df[qty_col])
+    s_net = sum_decimal(df[net_col])
+    s_qty = sum_decimal(df[qty_col])
 
     c1, c2 = st.columns(2)
     c1.metric(f"Net {year_name} (EUR)", format_number_plain(s_net))
@@ -1083,14 +1004,14 @@ def render_single_year_dashboard(
         st.markdown("### Category Performance")
         cat = (
             df.groupby("Category Clean")
-            .agg({net_col: decimal_sum})
+            .agg({net_col: sum_decimal})
             .reset_index()
             .rename(columns={net_col: f"Net {year_name}"})
         )
         cat = sort_by_col_desc(cat, f"Net {year_name}")
         plot_cat = cat.copy()
         plot_cat[f"Net {year_name}"] = plot_cat[f"Net {year_name}"].apply(
-            lambda v: float(safe_decimal(v))
+            lambda v: float(clean_number(v))
         )
 
         st.markdown(f"#### Category Pie {year_name}")
@@ -1109,14 +1030,14 @@ def render_single_year_dashboard(
     st.markdown("### Brand Performance")
     brand = (
         df.groupby(brand_col)
-        .agg({net_col: decimal_sum})
+        .agg({net_col: sum_decimal})
         .reset_index()
         .rename(columns={net_col: f"Net {year_name}"})
     )
     brand = sort_by_col_desc(brand, f"Net {year_name}")
     bplot = brand.copy()
     bplot[f"Net {year_name}"] = bplot[f"Net {year_name}"].apply(
-        lambda v: float(safe_decimal(v))
+        lambda v: float(clean_number(v))
     )
 
     st.markdown(f"#### Brand Pie {year_name}")
@@ -1138,21 +1059,21 @@ def render_single_year_dashboard(
     else:
         d = (
             df.groupby(code_col)
-            .agg({desc_col: "first", net_col: decimal_sum, qty_col: decimal_sum})
+            .agg({desc_col: "first", net_col: sum_decimal, qty_col: sum_decimal})
             .reset_index()
         )
-        d = d[d[net_col].apply(lambda x: safe_decimal(x) > 0)]
+        d = d[d[net_col].apply(lambda x: clean_number(x) > 0)]
         d = sort_by_col_desc(d, net_col)
         if d.empty:
             st.info("No sales.")
         else:
             top = d.head(10)
-            total_val = decimal_sum(d[net_col])
+            total_val = sum_decimal(d[net_col])
             if total_val == 0:
                 top["Share (%)"] = 0.0
             else:
                 top["Share (%)"] = top[net_col].apply(
-                    lambda x: to_display_perc(safe_decimal(x) / total_val * Decimal('100'))
+                    lambda x: to_display_perc(clean_number(x) / total_val * Decimal('100'))
                 )
             disp = top.copy()
             disp[net_col] = disp[net_col].apply(to_display_num)
@@ -1167,21 +1088,21 @@ def render_single_year_dashboard(
     st.markdown("### Pareto Analysis")
     p = (
         df.groupby(code_col)
-        .agg({desc_col: "first", "Category Clean": "first", net_col: decimal_sum})
+        .agg({desc_col: "first", "Category Clean": "first", net_col: sum_decimal})
         .reset_index()
     )
-    p = p[p[net_col].apply(lambda x: safe_decimal(x) > 0)]
+    p = p[p[net_col].apply(lambda x: clean_number(x) > 0)]
     if p.empty:
         st.info("No sales.")
     else:
         p = sort_by_col_desc(p, net_col)
         p["cum_value"] = p[net_col].cumsum()
-        total_val = decimal_sum(p[net_col])
+        total_val = sum_decimal(p[net_col])
         if total_val == 0:
             st.info("Total value is zero.")
         else:
             p["cum_share"] = p["cum_value"].apply(
-                lambda x: safe_decimal(x) / total_val
+                lambda x: clean_number(x) / total_val
             )
             top80 = p[p["cum_share"] <= Decimal('0.8')]
             total_sku = p[code_col].nunique()
@@ -1204,20 +1125,20 @@ def render_single_year_dashboard(
     st.markdown("### ABC Analysis")
     a = (
         df.groupby(code_col)
-        .agg({desc_col: "first", net_col: decimal_sum})
+        .agg({desc_col: "first", net_col: sum_decimal})
         .reset_index()
     )
-    a = a[a[net_col].apply(lambda x: safe_decimal(x) > 0)]
+    a = a[a[net_col].apply(lambda x: clean_number(x) > 0)]
     if a.empty:
         st.info("No sales.")
     else:
         a = sort_by_col_desc(a, net_col).reset_index(drop=True)
-        total_val = decimal_sum(a[net_col])
+        total_val = sum_decimal(a[net_col])
         if total_val == 0:
             st.info("Total is zero.")
         else:
             a["cum"] = a[net_col].cumsum().apply(
-                lambda x: safe_decimal(x) / total_val
+                lambda x: clean_number(x) / total_val
             )
             a["segment"] = "C"
             a.loc[a["cum"] <= Decimal('0.7'), "segment"] = "A"
@@ -1239,7 +1160,7 @@ def render_single_year_dashboard(
     st.markdown("### Auto Insights")
     cat_ins = (
         df.groupby("Category Clean")
-        .agg({net_col: decimal_sum})
+        .agg({net_col: sum_decimal})
         .reset_index()
         .rename(columns={net_col: f"Net {year_name}"})
     )
@@ -1270,13 +1191,15 @@ if not file_prev_year and not file_current_year and not file_two_years_ago:
 
 df_old2, cols_old2, year_old2 = load_single_year_file(
     file_two_years_ago, "older"
-) if file_two_years_ago else (None, None, None)
+) if file_two_years_ago is not None else (None, None, None)
+
 df_prev, cols_prev, year_prev = load_single_year_file(
     file_prev_year, "prev"
-) if file_prev_year else (None, None, None)
+) if file_prev_year is not None else (None, None, None)
+
 df_curr, cols_curr, year_curr = load_single_year_file(
     file_current_year, "curr"
-) if file_current_year else (None, None, None)
+) if file_current_year is not None else (None, None, None)
 
 st.divider()
 
@@ -1372,41 +1295,41 @@ with tab_overview:
                     else None
                 )
 
-                val_curr = decimal_sum(df_curr_ytd[cols_curr["Net"]])
-                val_prev = decimal_sum(df_prev_ytd[cols_prev["Net"]])
+                val_curr = sum_decimal(df_curr_ytd[cols_curr["Net"]])
+                val_prev = sum_decimal(df_prev_ytd[cols_prev["Net"]])
                 val_old2 = (
-                    decimal_sum(df_old2_ytd[cols_old2["Net"]])
+                    sum_decimal(df_old2_ytd[cols_old2["Net"]])
                     if df_old2_ytd is not None
                     else Decimal('0')
                 )
 
                 c1, c2, c3 = st.columns(3)
                 c1.metric(
-                    f"Net {year_old2} (EUR)" if df_old2 else "Net older (EUR)",
+                    f"Net {year_old2} (EUR)" if df_old2 is not None else "Net older (EUR)",
                     format_number_plain(val_old2),
                 )
                 c2.metric(
                     f"Net {year_prev} (EUR)",
                     format_number_plain(val_prev),
-                    yoy_label(calc_yoy_clean(val_prev, val_old2)) if df_old2 else None,
+                    yoy_label(yoy_calc(val_prev, val_old2)) if df_old2 is not None else None,
                 )
                 c3.metric(
                     f"Net {year_curr} (EUR)",
                     format_number_plain(val_curr),
-                    yoy_label(calc_yoy_clean(val_curr, val_prev)),
+                    yoy_label(yoy_calc(val_curr, val_prev)),
                 )
 
                 chart_data = pd.DataFrame(
                     {
                         "Year": [
-                            year_old2 if df_old2 else "Older",
+                            year_old2 if df_old2 is not None else "Older",
                             year_prev,
                             year_curr,
                         ],
                         "Net": [
-                            float(safe_decimal(val_old2)),
-                            float(safe_decimal(val_prev)),
-                            float(safe_decimal(val_curr)),
+                            float(clean_number(val_old2)),
+                            float(clean_number(val_prev)),
+                            float(clean_number(val_curr)),
                         ],
                     }
                 )
