@@ -470,12 +470,14 @@ def render_two_year_dashboard(
             st.plotly_chart(
                 px.pie(plot_cat, names=cat_col, values=f"Net {year_old}"),
                 use_container_width=True,
+                key=f"{unique_prefix}_cat_pie_{year_old}"
             )
         with pc2:
             st.markdown(f"#### Category Pie {year_new}")
             st.plotly_chart(
                 px.pie(plot_cat, names=cat_col, values=f"Net {year_new}"),
                 use_container_width=True,
+                key=f"{unique_prefix}_cat_pie_{year_new}"
             )
 
         cat_display = cat.copy()
@@ -537,12 +539,14 @@ def render_two_year_dashboard(
         st.plotly_chart(
             px.pie(bplot, names=brand_col, values=f"Net {year_old}"),
             use_container_width=True,
+            key=f"{unique_prefix}_brand_pie_{year_old}"
         )
     with bc2:
         st.markdown(f"#### Brand Pie {year_new}")
         st.plotly_chart(
             px.pie(bplot, names=brand_col, values=f"Net {year_new}"),
             use_container_width=True,
+            key=f"{unique_prefix}_brand_pie_{year_new}"
         )
 
     brand_display = brand.copy()
@@ -871,6 +875,7 @@ def render_two_year_dashboard(
         d_disp = decline.copy()
         d_disp[f"Net {year_old}"] = d_disp.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
         d_disp[f"Net {year_new}"] = d_disp.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
+        d_disp["Change Value"] = d_disp.get("Change Value Raw", pd.Series(dtype=int)).apply(to_display_num) # Not strictly needed here, safely ignored
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(
             add_index(
@@ -1047,6 +1052,7 @@ def render_single_year_dashboard(
         st.plotly_chart(
             px.pie(plot_cat, names=cat_col, values=f"Net {year_name}"),
             use_container_width=True,
+            key=f"{unique_prefix}_cat_pie_{year_name}"
         )
 
         cat_disp = cat.copy()
@@ -1073,6 +1079,7 @@ def render_single_year_dashboard(
     st.plotly_chart(
         px.pie(bplot, names=brand_col, values=f"Net {year_name}"),
         use_container_width=True,
+        key=f"{unique_prefix}_brand_pie_{year_name}"
     )
 
     brand_disp = brand.copy()
@@ -1295,7 +1302,7 @@ with tab_overview:
 
         if vals:
             chart_df = pd.DataFrame({"Year": years, "Net (EUR)": vals}).sort_values("Year")
-            st.plotly_chart(px.bar(chart_df, x="Year", y="Net (EUR)", text="Net (EUR)", title="Net Value YTD", color="Year"), use_container_width=True)
+            st.plotly_chart(px.bar(chart_df, x="Year", y="Net (EUR)", text="Net (EUR)", title="Net Value YTD", color="Year"), use_container_width=True, key="ov_net_bar")
 
         def render_three_year_analysis(group_col, section_title, dfs, year_list, cols_list, display_name, show_pie=True):
             st.divider()
@@ -1342,7 +1349,7 @@ with tab_overview:
                             plot_df = plot_df.groupby(group_col, as_index=False)[[f"Net {y}"]].sum()
 
                         with pie_cols[i]:
-                            st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} Pie {y}"), use_container_width=True)
+                            st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} Pie {y}"), use_container_width=True, key=f"ov_{group_col}_{y}_pie")
 
                 display_df = master.copy()
                 for g, y in group_dfs:
@@ -1448,7 +1455,6 @@ with tab_l4l:
             common_months = [m for m in all_det_months if m in df_left[cols_left["Month"]].unique() and m in df_right[cols_right["Month"]].unique()]
 
             st.markdown("### Filters for Detailed L4L")
-            # ZMIANA: Usunięty zduplikowany filtr - korzystamy z jednego wbudowanego w apply_shared_filters
             filtered_list, meta = apply_shared_filters(
                 [df_left, df_right],
                 cols_left,
@@ -1521,10 +1527,8 @@ with tab_customer:
     else:
         base_cols = newest_cols
         
-        # ZMIANA: Filtracja bez miesięcy na głównej belce
         filtered_cr, meta_cr = apply_shared_filters(dfs_cr, base_cols, "cr", show_months=False)
         
-        # ZMIANA: Blokada widoku dopóki nie zostanie wybrany konkretny klient
         if meta_cr["customer"] == "All Customers":
             st.info("⚠️ Proszę wybrać konkretnego klienta z filtra wyżej (Customer), aby wyświetlić dedykowaną analizę w tej zakładce.")
         else:
@@ -1590,16 +1594,16 @@ with tab_customer:
             st.divider()
             render_monthly_table("Qty")
 
-            # ZMIANA: Filtr miesięcy umieszczony tylko przed analizami zbiorczymi
+            # Filtr miesięcy oddziałujący tylko na poniższe sekcje (Net Value Comparison, Category, Brand)
             st.divider()
-            st.markdown("### ⚙️ Filter Months for L4L Comparisons")
+            st.markdown("### ⚙️ Filter Months for Comparisons")
             
             all_cr_months = sorted(list(set(meta_cr["df_all"][base_cols["Month"]].dropna().unique().tolist())), 
                                     key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
             default_cr_m = newest_months if newest_months else all_cr_months
             cr_selected_months = st.multiselect("📅 Select Months", options=all_cr_months, default=default_cr_m, key="cr_sub_months")
 
-            # 3. Wykres główny NET (uwzględniający odfiltrowane miesiące i klienta)
+            # 3. Wykres główny NET
             st.divider()
             st.markdown("### 3. Net Value Comparison")
             chart_vals = []
@@ -1614,9 +1618,9 @@ with tab_customer:
                     chart_vals.append({"Year": y, "Net": float(sum_decimal(d_f[c["Net"]]))})
             
             if chart_vals:
-                st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year"), use_container_width=True)
+                st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year"), use_container_width=True, key="cr_net_bar")
 
-            # ZMIANA: Zrekonstruowana funkcja rozwiązująca błąd StopIteration
+            # Analiza Sub-Kategorii (z unikalnymi kluczami)
             def render_cr_sub_analysis(group_col_key, section_title, display_name):
                 st.divider()
                 st.markdown(f"### {section_title}")
@@ -1669,7 +1673,7 @@ with tab_customer:
                             plot_df = plot_df.groupby(g_col_name, as_index=False)[[f"Net {y}"]].sum()
 
                         with pie_cols[i]:
-                            st.plotly_chart(px.pie(plot_df, names=g_col_name, values=f"Net {y}", title=f"{display_name} Pie {y}"), use_container_width=True)
+                            st.plotly_chart(px.pie(plot_df, names=g_col_name, values=f"Net {y}", title=f"{display_name} Pie {y}"), use_container_width=True, key=f"cr_pie_{group_col_key}_{y}")
 
                     display_df = master.copy()
                     for _, y, _ in group_dfs_chrono:
@@ -1694,7 +1698,7 @@ with tab_customer:
             # 5. Brand Comparison
             render_cr_sub_analysis("Brand", "5. Brand Comparison", "Brand")
 
-            # ZMIANA: 6. L4L Table dla Customer Review (SKU Level)
+            # 6. L4L Table (SKU Level)
             def render_cr_l4l_table():
                 st.divider()
                 st.markdown("### 6. L4L Table (SKU Level)")
@@ -1749,7 +1753,7 @@ with tab_customer:
 
             render_cr_l4l_table()
 
-            # ZMIANA: 7. Auto Insights dla Customer Review (Focus na Kategorie)
+            # 7. Auto Insights
             st.divider()
             st.markdown("### 7. Auto Insights (Customer Level)")
             
@@ -1774,7 +1778,7 @@ with tab_customer:
                 ins_chrono = sorted(ins_dfs, key=lambda x: x[1])
                 cr_years = [item[1] for item in ins_chrono]
                 y_newest = cr_years[-1]
-                y1 = cr_years[-2] # vs previous
+                y1 = cr_years[-2]
                 
                 master_ins["YoY_val"] = master_ins.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
                 
