@@ -146,7 +146,7 @@ def normalize_category(x: str) -> str:
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
-    "Invitations", "Masks", "Pinata", "Plastic Cups", "Horns", "Other" # Usunięto Articles
+    "Invitations", "Masks", "Pinata", "Plastic Cups", "Horns", "Other"
 ]
 
 def sort_by_col_desc(df: pd.DataFrame, col: str) -> pd.DataFrame:
@@ -314,13 +314,16 @@ def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
     return df_filtered, meta
 
 
-def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None):
+def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, show_months=True):
     if not dfs:
         return [], None
 
     df_all = pd.concat(dfs, ignore_index=True)
 
-    c1, c2, c3, c4 = st.columns(4)
+    if show_months:
+        c1, c2, c3, c4 = st.columns(4)
+    else:
+        c1, c2, c3 = st.columns(3)
 
     countries = ["All Countries"] + sorted(
         df_all[cols["Country"]].replace("", pd.NA).dropna().unique().tolist()
@@ -347,9 +350,12 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None):
     all_det_months = sorted(list(set(df_all[cols["Month"]].dropna().unique().tolist())), 
                             key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
-    default_m = default_months if default_months else all_det_months
-    key_months = f"{unique_prefix}_months"
-    selected_months = c4.multiselect("📅 Months", options=all_det_months, default=default_m, key=key_months)
+    if show_months:
+        default_m = default_months if default_months else all_det_months
+        key_months = f"{unique_prefix}_months"
+        selected_months = c4.multiselect("📅 Months", options=all_det_months, default=default_m, key=key_months)
+    else:
+        selected_months = all_det_months
 
     filtered_dfs = []
     for df in dfs:
@@ -360,7 +366,7 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None):
             d = d[d[cols["Customer"]] == selected_customer]
         if selected_category != "All Categories":
             d = d[d[cols["Cat"]] == selected_category]
-        if selected_months:
+        if selected_months and show_months:
             d = d[d[cols["Month"]].isin(selected_months)]
         filtered_dfs.append(d)
 
@@ -455,6 +461,7 @@ def render_two_year_dashboard(
         plot_cat[f"Net {year_old}"] = plot_cat.get(f"Net {year_old}", pd.Series(dtype=float)).apply(
             lambda v: float(clean_number(v))
         )
+        # Zabezpieczenie przed ujemnymi wartościami w Pie Chart
         plot_cat.loc[plot_cat[f"Net {year_new}"] < 0, f"Net {year_new}"] = 0
         plot_cat.loc[plot_cat[f"Net {year_old}"] < 0, f"Net {year_old}"] = 0
 
@@ -1442,6 +1449,7 @@ with tab_l4l:
             common_months = [m for m in all_det_months if m in df_left[cols_left["Month"]].unique() and m in df_right[cols_right["Month"]].unique()]
 
             st.markdown("### Filters for Detailed L4L")
+            # ZMIANA: Tylko 1 filtr dla miesięcy generowany centralnie przez apply_shared_filters
             filtered_list, meta = apply_shared_filters(
                 [df_left, df_right],
                 cols_left,
@@ -1513,13 +1521,21 @@ with tab_customer:
         st.warning("Please upload data.")
     else:
         base_cols = newest_cols
-        filtered_cr, meta_cr = apply_shared_filters(dfs_cr, base_cols, "cr", default_months=newest_months)
         
+        # ZMIANA: Filtracja bez miesięcy (tylko Country, Customer, Category)
+        filtered_cr, meta_cr = apply_shared_filters(dfs_cr, base_cols, "cr", show_months=False)
+        
+        # ZMIANA: Wymuszony wybór klienta
         if meta_cr["customer"] == "All Customers":
-            st.info("ℹ️ Proszę wybrać konkretnego klienta z filtra (Customer), aby wyświetlić analizę.")
+            st.info("⚠️ Please select a specific customer from the filter above (Customer) to view the analysis in this tab.")
         else:
             def render_monthly_table(mode="Net"):
-                st.markdown(f"### 1. {mode} Value Monthly Comparison") if mode == "Net" else st.markdown(f"### 2. Quantity Monthly Comparison")
+                # ZMIANA: Poprawiony zapis if/else zdejmujący błąd z DeltaGenerator
+                if mode == "Net":
+                    st.markdown("### 1. Net Value Monthly Comparison")
+                else:
+                    st.markdown("### 2. Quantity Monthly Comparison")
+                
                 col_key = "Net" if mode == "Net" else "Qty"
 
                 year_data = {}
@@ -1576,6 +1592,15 @@ with tab_customer:
             st.divider()
             render_monthly_table("Qty")
 
+            # ZMIANA: Specjalny filtr dla miesięcy wpływający tylko na sekcje poniżej
+            st.divider()
+            st.markdown("### ⚙️ Filter Months for Comparisons")
+            
+            all_cr_months = sorted(list(set(meta_cr["df_all"][base_cols["Month"]].dropna().unique().tolist())), 
+                                    key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
+            default_cr_m = newest_months if newest_months else all_cr_months
+            cr_selected_months = st.multiselect("📅 Select Months", options=all_cr_months, default=default_cr_m, key="cr_sub_months")
+
             # 3. Wykres główny NET (uwzględniający odfiltrowane miesiące i klienta)
             st.divider()
             st.markdown("### 3. Net Value Comparison")
@@ -1586,13 +1611,14 @@ with tab_customer:
                     if meta_cr["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
                     if meta_cr["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta_cr["customer"]]
                     if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
-                    if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])]
+                    if cr_selected_months: d_f = d_f[d_f[c["Month"]].isin(cr_selected_months)]
+                    
                     chart_vals.append({"Year": y, "Net": float(sum_decimal(d_f[c["Net"]]))})
             
             if chart_vals:
                 st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year"), use_container_width=True)
 
-            # Bezpieczny system do renderowania porównań sub-kategorii z wykluczeniem problemu 'next()' i 'StopIteration'
+            # ZMIANA: Zrekonstruowana funkcja rozwiązująca błąd 'StopIteration' oparta na głównych zbiorach
             def render_cr_sub_analysis(group_col_key, section_title, display_name):
                 st.divider()
                 st.markdown(f"### {section_title}")
@@ -1607,7 +1633,7 @@ with tab_customer:
                         if group_col_key != "Cat" and meta_cr["category"] != "All Categories":
                             d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                             
-                        if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])]
+                        if cr_selected_months: d_f = d_f[d_f[c["Month"]].isin(cr_selected_months)]
 
                         g = d_f.groupby(c[group_col_key]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
                         group_dfs.append((g, y, c[group_col_key]))
