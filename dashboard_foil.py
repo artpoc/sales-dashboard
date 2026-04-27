@@ -875,7 +875,6 @@ def render_two_year_dashboard(
         d_disp = decline.copy()
         d_disp[f"Net {year_old}"] = d_disp.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
         d_disp[f"Net {year_new}"] = d_disp.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
-        d_disp["Change Value"] = d_disp.get("Change Value Raw", pd.Series(dtype=int)).apply(to_display_num) # Not strictly needed here, safely ignored
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(
             add_index(
@@ -1594,16 +1593,30 @@ with tab_customer:
             st.divider()
             render_monthly_table("Qty")
 
-            # Filtr miesięcy oddziałujący tylko na poniższe sekcje (Net Value Comparison, Category, Brand)
+            # Specjalny filtr dla miesięcy wpływający tylko na sekcje poniżej
             st.divider()
             st.markdown("### ⚙️ Filter Months for Comparisons")
             
-            all_cr_months = sorted(list(set(meta_cr["df_all"][base_cols["Month"]].dropna().unique().tolist())), 
-                                    key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
-            default_cr_m = newest_months if newest_months else all_cr_months
+            # Ekstrakcja historii miesięcy klienta
+            all_cr_months = set()
+            for orig_d, c in zip([df_old2, df_prev, df_curr], [cols_old2, cols_prev, cols_curr]):
+                if orig_d is not None:
+                    d_f = orig_d.copy()
+                    if meta_cr["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
+                    if meta_cr["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta_cr["customer"]]
+                    if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
+                    all_cr_months.update(d_f[c["Month"]].dropna().unique().tolist())
+                    
+            all_cr_months = sorted(list(all_cr_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
+            
+            # Wyłapujemy domyślnie tylko te miesiące, które pokrywają się z najnowszym rokiem
+            default_cr_m = [m for m in newest_months if m in all_cr_months]
+            if not default_cr_m:
+                default_cr_m = all_cr_months
+                
             cr_selected_months = st.multiselect("📅 Select Months", options=all_cr_months, default=default_cr_m, key="cr_sub_months")
 
-            # 3. Wykres główny NET
+            # 3. Wykres główny NET (uwzględniający odfiltrowane miesiące)
             st.divider()
             st.markdown("### 3. Net Value Comparison")
             chart_vals = []
@@ -1620,7 +1633,7 @@ with tab_customer:
             if chart_vals:
                 st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year"), use_container_width=True, key="cr_net_bar")
 
-            # Analiza Sub-Kategorii (z unikalnymi kluczami)
+            # Zrekonstruowana funkcja rozwiązująca wszystkie błędy
             def render_cr_sub_analysis(group_col_key, section_title, display_name):
                 st.divider()
                 st.markdown(f"### {section_title}")
