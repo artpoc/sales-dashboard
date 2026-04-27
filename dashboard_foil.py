@@ -16,20 +16,21 @@ def add_index(df: pd.DataFrame) -> pd.DataFrame:
     df.index = df.index + 1
     return df
 
-
 def to_decimal(x):
     """Convert Excel-like cell to Decimal, matching Excel behavior as close as possible."""
     if x is None or pd.isna(x):
         return Decimal('0')
     try:
+        if isinstance(x, (int, float)):
+            return Decimal(str(x))
         s = str(x).strip()
         if s in ["", "-", "None", "nan"]:
             return Decimal('0')
-        s = s.replace(" ", "").replace(",", ".")
+        # Usuwa zwykłe spacje, twarde spacje, wąskie spacje i zamienia przecinki na kropki
+        s = s.replace(" ", "").replace("\xa0", "").replace("\u202f", "").replace(",", ".")
         return Decimal(s)
     except Exception:
         return Decimal('0')
-
 
 def safe_decimal(d) -> Decimal:
     try:
@@ -38,7 +39,6 @@ def safe_decimal(d) -> Decimal:
         return to_decimal(d)
     except Exception:
         return Decimal('0')
-
 
 def decimal_sum(series: pd.Series) -> Decimal:
     try:
@@ -49,8 +49,8 @@ def decimal_sum(series: pd.Series) -> Decimal:
         except Exception:
             return Decimal('0')
 
-
 def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
+    """Format into string - strictly used for Metrics/KPIs (not DataFrames!)"""
     d = safe_decimal(d)
     try:
         if decimals == 0:
@@ -64,6 +64,25 @@ def format_number_plain(d, decimals: int = DISPLAY_DECIMALS) -> str:
         except Exception:
             return "0"
 
+def to_display_num(d):
+    """Convert Decimal into int/float so Streamlit sorts it numerically in DataFrames."""
+    d = safe_decimal(d)
+    try:
+        if DISPLAY_DECIMALS == 0:
+            return int(d.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        else:
+            return float(d.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))
+    except Exception:
+        return 0
+
+def to_display_perc(d):
+    """Convert YoY decimal to standard float for mathematical sorting in DataFrames."""
+    if d is None:
+        return 0.0
+    try:
+        return float(d)
+    except Exception:
+        return 0.0
 
 def calc_yoy_clean(new: Decimal, old: Decimal):
     new = safe_decimal(new)
@@ -79,7 +98,6 @@ def calc_yoy_clean(new: Decimal, old: Decimal):
     except (InvalidOperation, Exception):
         return None
 
-
 def yoy_label(val, special: bool = False) -> str:
     if special:
         return "Recovery to 0 ⚠️"
@@ -94,7 +112,6 @@ def yoy_label(val, special: bool = False) -> str:
     if v < 0:
         return f"{v:.0f}% 🔴"
     return "0%"
-
 
 def normalize_category(x: str) -> str:
     x = str(x).lower()
@@ -136,13 +153,11 @@ def normalize_category(x: str) -> str:
         return "Articles"
     return "Other"
 
-
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
     "Invitations", "Articles", "Masks", "Pinata", "Plastic Cups"
 ]
-
 
 def sort_by_col_desc(df: pd.DataFrame, col: str) -> pd.DataFrame:
     if col not in df.columns:
@@ -157,13 +172,11 @@ def sort_by_col_desc(df: pd.DataFrame, col: str) -> pd.DataFrame:
         except Exception:
             return df
 
-
 def extract_year_from_header(col_name: str) -> str:
     digits = "".join(ch for ch in str(col_name) if ch.isdigit())
     if digits:
         return digits
     return str(col_name)
-
 
 # ================= DATA LOADING FOR SINGLE-YEAR FILES =================
 def load_single_year_file(file, label: str):
@@ -248,6 +261,9 @@ def load_single_year_file(file, label: str):
     for c in [month_col, customer_col, country_col, code_col, desc_col, brand_col, cat_col]:
         if c in df.columns:
             df[c] = df[c].astype(str).fillna("").replace("nan", "")
+            # Kluczowe dla agregacji: czyścimy kody SKU z białych znaków (np. niechciane spacje z excela)
+            if c == code_col:
+                df[c] = df[c].str.strip()
         else:
             df[c] = ""
 
@@ -271,7 +287,6 @@ def load_single_year_file(file, label: str):
         "Qty": qty_col,
     }
     return df, cols, year_name
-
 
 # ================= FILTERS =================
 def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
@@ -416,7 +431,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # CATEGORY PERFORMANCE (tylko gdy nie wybrano konkretnej kategorii)
+    # CATEGORY PERFORMANCE
     if category_filter == "All Categories":
         st.markdown("### Category Performance")
 
@@ -439,7 +454,6 @@ def render_two_year_dashboard(
         cat[f"YoY {year_new} vs {year_old}"] = cat.apply(
             lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
         )
-        cat["YoY %"] = cat[f"YoY {year_new} vs {year_old}"].apply(yoy_label)
 
         cat = sort_by_col_desc(cat, f"Net {year_new}")
 
@@ -466,12 +480,10 @@ def render_two_year_dashboard(
             )
 
         cat_display = cat.copy()
-        cat_display[f"Net {year_old}"] = cat_display[f"Net {year_old}"].apply(
-            format_number_plain
-        )
-        cat_display[f"Net {year_new}"] = cat_display[f"Net {year_new}"].apply(
-            format_number_plain
-        )
+        cat_display[f"Net {year_old}"] = cat_display[f"Net {year_old}"].apply(to_display_num)
+        cat_display[f"Net {year_new}"] = cat_display[f"Net {year_new}"].apply(to_display_num)
+        cat_display["YoY (%)"] = cat_display[f"YoY {year_new} vs {year_old}"].apply(to_display_perc)
+        
         st.dataframe(
             add_index(
                 cat_display[
@@ -479,7 +491,7 @@ def render_two_year_dashboard(
                         "Category Clean",
                         f"Net {year_old}",
                         f"Net {year_new}",
-                        "YoY %",
+                        "YoY (%)",
                     ]
                 ]
             )
@@ -509,7 +521,6 @@ def render_two_year_dashboard(
     brand[f"YoY {year_new} vs {year_old}"] = brand.apply(
         lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
     )
-    brand["YoY %"] = brand[f"YoY {year_new} vs {year_old}"].apply(yoy_label)
 
     brand = sort_by_col_desc(brand, f"Net {year_new}")
 
@@ -536,12 +547,10 @@ def render_two_year_dashboard(
         )
 
     brand_display = brand.copy()
-    brand_display[f"Net {year_old}"] = brand_display[f"Net {year_old}"].apply(
-        format_number_plain
-    )
-    brand_display[f"Net {year_new}"] = brand_display[f"Net {year_new}"].apply(
-        format_number_plain
-    )
+    brand_display[f"Net {year_old}"] = brand_display[f"Net {year_old}"].apply(to_display_num)
+    brand_display[f"Net {year_new}"] = brand_display[f"Net {year_new}"].apply(to_display_num)
+    brand_display["YoY (%)"] = brand_display[f"YoY {year_new} vs {year_old}"].apply(to_display_perc)
+    
     st.dataframe(
         add_index(
             brand_display[
@@ -549,7 +558,7 @@ def render_two_year_dashboard(
                     brand_col,
                     f"Net {year_old}",
                     f"Net {year_new}",
-                    "YoY %",
+                    "YoY (%)",
                 ]
             ]
         )
@@ -587,20 +596,18 @@ def render_two_year_dashboard(
                 top_old = d_old.head(10)
                 total_old_val = decimal_sum(d_old[net_old])
                 if total_old_val == 0:
-                    top_old["Share %"] = Decimal('0')
+                    top_old["Share (%)"] = 0.0
                 else:
-                    top_old["Share %"] = top_old[net_old].apply(
-                        lambda x: safe_decimal(x) / total_old_val * Decimal('100')
+                    top_old["Share (%)"] = top_old[net_old].apply(
+                        lambda x: to_display_perc(safe_decimal(x) / total_old_val * Decimal('100'))
                     )
                 disp_old = top_old.copy()
-                disp_old[net_old] = disp_old[net_old].apply(format_number_plain)
-                disp_old[qty_old] = disp_old[qty_old].apply(format_number_plain)
-                disp_old["Share %"] = disp_old["Share %"].apply(
-                    lambda x: f"{format_number_plain(x)}%"
-                )
+                disp_old[net_old] = disp_old[net_old].apply(to_display_num)
+                disp_old[qty_old] = disp_old[qty_old].apply(to_display_num)
+                
                 st.dataframe(
                     add_index(
-                        disp_old[[code_col, desc_col, net_old, qty_old, "Share %"]]
+                        disp_old[[code_col, desc_col, net_old, qty_old, "Share (%)"]]
                     )
                 )
                 try:
@@ -630,20 +637,18 @@ def render_two_year_dashboard(
                 top_new = d_new.head(10)
                 total_new_val = decimal_sum(d_new[net_new])
                 if total_new_val == 0:
-                    top_new["Share %"] = Decimal('0')
+                    top_new["Share (%)"] = 0.0
                 else:
-                    top_new["Share %"] = top_new[net_new].apply(
-                        lambda x: safe_decimal(x) / total_new_val * Decimal('100')
+                    top_new["Share (%)"] = top_new[net_new].apply(
+                        lambda x: to_display_perc(safe_decimal(x) / total_new_val * Decimal('100'))
                     )
                 disp_new = top_new.copy()
-                disp_new[net_new] = disp_new[net_new].apply(format_number_plain)
-                disp_new[qty_new] = disp_new[qty_new].apply(format_number_plain)
-                disp_new["Share %"] = disp_new["Share %"].apply(
-                    lambda x: f"{format_number_plain(x)}%"
-                )
+                disp_new[net_new] = disp_new[net_new].apply(to_display_num)
+                disp_new[qty_new] = disp_new[qty_new].apply(to_display_num)
+                
                 st.dataframe(
                     add_index(
-                        disp_new[[code_col, desc_col, net_new, qty_new, "Share %"]]
+                        disp_new[[code_col, desc_col, net_new, qty_new, "Share (%)"]]
                     )
                 )
                 try:
@@ -700,7 +705,7 @@ def render_two_year_dashboard(
                         f"Top SKU for 80%: {pareto_sku} / {total_sku} ({format_number_plain(sku_share)}% of SKU)"
                     )
                     p_display = top80[[code_col, desc_col, "Category Clean", net_col]].copy()
-                    p_display[net_col] = p_display[net_col].apply(format_number_plain)
+                    p_display[net_col] = p_display[net_col].apply(to_display_num)
                     st.dataframe(add_index(p_display))
 
     st.divider()
@@ -743,7 +748,7 @@ def render_two_year_dashboard(
                         f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}"
                     )
                     a_display = a[[code_col, desc_col, net_col, "segment"]].copy()
-                    a_display[net_col] = a_display[net_col].apply(format_number_plain)
+                    a_display[net_col] = a_display[net_col].apply(to_display_num)
                     st.dataframe(add_index(a_display))
 
     st.divider()
@@ -766,14 +771,14 @@ def render_two_year_dashboard(
     yoy["YoY"] = yoy.apply(
         lambda x: calc_yoy_clean(x[net_new], x[net_old]), axis=1
     )
-    yoy["YoY %"] = yoy["YoY"].apply(yoy_label)
     yoy = sort_by_col_desc(yoy, net_new)
 
     yoy_disp = yoy.copy()
-    yoy_disp[net_old] = yoy_disp[net_old].apply(format_number_plain)
-    yoy_disp[net_new] = yoy_disp[net_new].apply(format_number_plain)
-    yoy_disp[qty_old] = yoy_disp[qty_old].apply(format_number_plain)
-    yoy_disp[qty_new] = yoy_disp[qty_new].apply(format_number_plain)
+    yoy_disp[net_old] = yoy_disp[net_old].apply(to_display_num)
+    yoy_disp[net_new] = yoy_disp[net_new].apply(to_display_num)
+    yoy_disp[qty_old] = yoy_disp[qty_old].apply(to_display_num)
+    yoy_disp[qty_new] = yoy_disp[qty_new].apply(to_display_num)
+    yoy_disp["YoY (%)"] = yoy_disp["YoY"].apply(to_display_perc)
 
     st.dataframe(
         add_index(
@@ -785,7 +790,7 @@ def render_two_year_dashboard(
                     net_new,
                     qty_old,
                     qty_new,
-                    "YoY %",
+                    "YoY (%)",
                 ]
             ]
         )
@@ -814,7 +819,6 @@ def render_two_year_dashboard(
     cat_ins["YoY"] = cat_ins.apply(
         lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
     )
-    cat_ins["YoY %"] = cat_ins["YoY"].apply(yoy_label)
     cat_ins = sort_by_col_desc(cat_ins, f"Net {year_new}")
 
     st.write("#### Top 5 Categories")
@@ -822,21 +826,18 @@ def render_two_year_dashboard(
     with ic1:
         top_old_cat = cat_ins.sort_values(f"Net {year_old}", ascending=False).head(5)
         disp_old_cat = top_old_cat.copy()
-        disp_old_cat[f"Net {year_old}"] = disp_old_cat[f"Net {year_old}"].apply(
-            format_number_plain
-        )
+        disp_old_cat[f"Net {year_old}"] = disp_old_cat[f"Net {year_old}"].apply(to_display_num)
         st.dataframe(
             add_index(disp_old_cat[["Category Clean", f"Net {year_old}"]])
         )
     with ic2:
         top_new_cat = cat_ins.sort_values(f"Net {year_new}", ascending=False).head(5)
         disp_new_cat = top_new_cat.copy()
-        disp_new_cat[f"Net {year_new}"] = disp_new_cat[f"Net {year_new}"].apply(
-            format_number_plain
-        )
+        disp_new_cat[f"Net {year_new}"] = disp_new_cat[f"Net {year_new}"].apply(to_display_num)
+        disp_new_cat["YoY (%)"] = disp_new_cat["YoY"].apply(to_display_perc)
         st.dataframe(
             add_index(
-                disp_new_cat[["Category Clean", f"Net {year_new}", "YoY %"]]
+                disp_new_cat[["Category Clean", f"Net {year_new}", "YoY (%)"]]
             )
         )
 
@@ -846,12 +847,9 @@ def render_two_year_dashboard(
         st.info("There is no growth in categories.")
     else:
         g_disp = growth.copy()
-        g_disp[f"Net {year_old}"] = g_disp[f"Net {year_old}"].apply(
-            format_number_plain
-        )
-        g_disp[f"Net {year_new}"] = g_disp[f"Net {year_new}"].apply(
-            format_number_plain
-        )
+        g_disp[f"Net {year_old}"] = g_disp[f"Net {year_old}"].apply(to_display_num)
+        g_disp[f"Net {year_new}"] = g_disp[f"Net {year_new}"].apply(to_display_num)
+        g_disp["YoY (%)"] = g_disp["YoY"].apply(to_display_perc)
         st.dataframe(
             add_index(
                 g_disp[
@@ -859,7 +857,7 @@ def render_two_year_dashboard(
                         "Category Clean",
                         f"Net {year_old}",
                         f"Net {year_new}",
-                        "YoY %",
+                        "YoY (%)",
                     ]
                 ]
             )
@@ -871,12 +869,9 @@ def render_two_year_dashboard(
         st.success("There is no risk in categories.")
     else:
         r_disp = risk.copy()
-        r_disp[f"Net {year_old}"] = r_disp[f"Net {year_old}"].apply(
-            format_number_plain
-        )
-        r_disp[f"Net {year_new}"] = r_disp[f"Net {year_new}"].apply(
-            format_number_plain
-        )
+        r_disp[f"Net {year_old}"] = r_disp[f"Net {year_old}"].apply(to_display_num)
+        r_disp[f"Net {year_new}"] = r_disp[f"Net {year_new}"].apply(to_display_num)
+        r_disp["YoY (%)"] = r_disp["YoY"].apply(to_display_perc)
         st.dataframe(
             add_index(
                 r_disp[
@@ -884,7 +879,7 @@ def render_two_year_dashboard(
                         "Category Clean",
                         f"Net {year_old}",
                         f"Net {year_new}",
-                        "YoY %",
+                        "YoY (%)",
                     ]
                 ]
             )
@@ -941,34 +936,29 @@ def render_two_year_dashboard(
     impact = pd.merge(
         cust_new, cust_old, on=cust_col, how="outer"
     ).fillna(Decimal('0'))
-    impact["Change Value"] = impact[f"Net {year_new}"] - impact[f"Net {year_old}"]
+    
+    impact["Change Value Raw"] = impact[f"Net {year_new}"] - impact[f"Net {year_old}"]
     impact["Special Case"] = (
         (impact[f"Net {year_old}"] < 0) & (impact[f"Net {year_new}"] == 0)
     )
     impact["YoY"] = impact.apply(
         lambda x: calc_yoy_clean(x[f"Net {year_new}"], x[f"Net {year_old}"]), axis=1
     )
-    impact["YoY %"] = impact.apply(
-        lambda x: yoy_label(x["YoY"], x["Special Case"]), axis=1
-    )
 
     st.write("#### Top Growth Drivers")
     growth_imp = impact[
-        (impact["Change Value"] > 0) & (~impact["Special Case"])
-    ].sort_values("Change Value", ascending=False).head(10)
+        (impact["Change Value Raw"] > 0) & (~impact["Special Case"])
+    ].sort_values("Change Value Raw", ascending=False).head(10)
     growth_special = impact[impact["Special Case"]].head(10)
     growth_imp = pd.concat([growth_imp, growth_special])
     if growth_imp.empty:
         st.info("No growth generated by customers.")
     else:
         g_disp = growth_imp.copy()
-        g_disp[f"Net {year_old}"] = g_disp[f"Net {year_old}"].apply(
-            format_number_plain
-        )
-        g_disp[f"Net {year_new}"] = g_disp[f"Net {year_new}"].apply(
-            format_number_plain
-        )
-        g_disp["Change Value"] = g_disp["Change Value"].apply(format_number_plain)
+        g_disp[f"Net {year_old}"] = g_disp[f"Net {year_old}"].apply(to_display_num)
+        g_disp[f"Net {year_new}"] = g_disp[f"Net {year_new}"].apply(to_display_num)
+        g_disp["Change Value"] = g_disp["Change Value Raw"].apply(to_display_num)
+        g_disp["YoY (%)"] = g_disp["YoY"].apply(to_display_perc)
         st.dataframe(
             add_index(
                 g_disp[
@@ -977,15 +967,15 @@ def render_two_year_dashboard(
                         f"Net {year_old}",
                         f"Net {year_new}",
                         "Change Value",
-                        "YoY %",
+                        "YoY (%)",
                     ]
                 ]
             )
         )
 
     st.write("#### Top Decline Drivers")
-    decline_imp = impact[impact["Change Value"] < 0].sort_values(
-        "Change Value"
+    decline_imp = impact[impact["Change Value Raw"] < 0].sort_values(
+        "Change Value Raw"
     ).head(10)
     decline_special = impact[impact["Special Case"]].head(10)
     decline_imp = pd.concat([decline_imp, decline_special])
@@ -993,13 +983,10 @@ def render_two_year_dashboard(
         st.success("No decline across customers.")
     else:
         d_disp = decline_imp.copy()
-        d_disp[f"Net {year_old}"] = d_disp[f"Net {year_old}"].apply(
-            format_number_plain
-        )
-        d_disp[f"Net {year_new}"] = d_disp[f"Net {year_new}"].apply(
-            format_number_plain
-        )
-        d_disp["Change Value"] = d_disp["Change Value"].apply(format_number_plain)
+        d_disp[f"Net {year_old}"] = d_disp[f"Net {year_old}"].apply(to_display_num)
+        d_disp[f"Net {year_new}"] = d_disp[f"Net {year_new}"].apply(to_display_num)
+        d_disp["Change Value"] = d_disp["Change Value Raw"].apply(to_display_num)
+        d_disp["YoY (%)"] = d_disp["YoY"].apply(to_display_perc)
         st.dataframe(
             add_index(
                 d_disp[
@@ -1008,7 +995,7 @@ def render_two_year_dashboard(
                         f"Net {year_old}",
                         f"Net {year_new}",
                         "Change Value",
-                        "YoY %",
+                        "YoY (%)",
                     ]
                 ]
             )
@@ -1040,7 +1027,7 @@ def render_single_year_dashboard(
 
     st.divider()
 
-    # CATEGORY PERFORMANCE (tylko gdy All Categories)
+    # CATEGORY PERFORMANCE
     if category_filter == "All Categories":
         st.markdown("### Category Performance")
         cat = (
@@ -1062,9 +1049,7 @@ def render_single_year_dashboard(
         )
 
         cat_disp = cat.copy()
-        cat_disp[f"Net {year_name}"] = cat_disp[f"Net {year_name}"].apply(
-            format_number_plain
-        )
+        cat_disp[f"Net {year_name}"] = cat_disp[f"Net {year_name}"].apply(to_display_num)
         st.dataframe(add_index(cat_disp[["Category Clean", f"Net {year_name}"]]))
 
         st.divider()
@@ -1090,9 +1075,7 @@ def render_single_year_dashboard(
     )
 
     brand_disp = brand.copy()
-    brand_disp[f"Net {year_name}"] = brand_disp[f"Net {year_name}"].apply(
-        format_number_plain
-    )
+    brand_disp[f"Net {year_name}"] = brand_disp[f"Net {year_name}"].apply(to_display_num)
     st.dataframe(add_index(brand_disp[[brand_col, f"Net {year_name}"]]))
 
     st.divider()
@@ -1115,19 +1098,16 @@ def render_single_year_dashboard(
             top = d.head(10)
             total_val = decimal_sum(d[net_col])
             if total_val == 0:
-                top["Share %"] = Decimal('0')
+                top["Share (%)"] = 0.0
             else:
-                top["Share %"] = top[net_col].apply(
-                    lambda x: safe_decimal(x) / total_val * Decimal('100')
+                top["Share (%)"] = top[net_col].apply(
+                    lambda x: to_display_perc(safe_decimal(x) / total_val * Decimal('100'))
                 )
             disp = top.copy()
-            disp[net_col] = disp[net_col].apply(format_number_plain)
-            disp[qty_col] = disp[qty_col].apply(format_number_plain)
-            disp["Share %"] = disp["Share %"].apply(
-                lambda x: f"{format_number_plain(x)}%"
-            )
+            disp[net_col] = disp[net_col].apply(to_display_num)
+            disp[qty_col] = disp[qty_col].apply(to_display_num)
             st.dataframe(
-                add_index(disp[[code_col, desc_col, net_col, qty_col, "Share %"]])
+                add_index(disp[[code_col, desc_col, net_col, qty_col, "Share (%)"]])
             )
 
     st.divider()
@@ -1164,7 +1144,7 @@ def render_single_year_dashboard(
                 f"Top SKU for 80%: {pareto_sku} / {total_sku} ({format_number_plain(sku_share)}% of SKU)"
             )
             p_disp = top80[[code_col, desc_col, "Category Clean", net_col]].copy()
-            p_disp[net_col] = p_disp[net_col].apply(format_number_plain)
+            p_disp[net_col] = p_disp[net_col].apply(to_display_num)
             st.dataframe(add_index(p_disp))
 
     st.divider()
@@ -1199,7 +1179,7 @@ def render_single_year_dashboard(
                 f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}"
             )
             a_disp = a[[code_col, desc_col, net_col, "segment"]].copy()
-            a_disp[net_col] = a_disp[net_col].apply(format_number_plain)
+            a_disp[net_col] = a_disp[net_col].apply(to_display_num)
             st.dataframe(add_index(a_disp))
 
     st.divider()
@@ -1216,7 +1196,7 @@ def render_single_year_dashboard(
     st.write("#### Top 5 Categories")
     top5 = cat_ins.head(5)
     disp = top5.copy()
-    disp[f"Net {year_name}"] = disp[f"Net {year_name}"].apply(format_number_plain)
+    disp[f"Net {year_name}"] = disp[f"Net {year_name}"].apply(to_display_num)
     st.dataframe(add_index(disp[["Category Clean", f"Net {year_name}"]]))
 
 
