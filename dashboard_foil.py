@@ -754,7 +754,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # L4L TABLE (Group strictly by Code to prevent split rows)
+    # L4L TABLE (Group strictly by Code)
     st.markdown("### L4L Table")
     yoy_df_new = (
         df_new.groupby(code_col)
@@ -868,6 +868,7 @@ def render_two_year_dashboard(
         d_disp[f"Change {year_new} vs {year_old}"] = d_disp["Change_Raw"].apply(to_display_num)
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(add_index(d_disp[disp_prefix + [f"Net {year_old}", f"Net {year_new}", f"Change {year_new} vs {year_old}", "YoY (%)"]]))
+
 
     st.divider()
 
@@ -1609,9 +1610,9 @@ with tab_customer:
 
             def render_monthly_table(mode="Net"):
                 if mode == "Net":
-                    st.markdown("### Net Value Monthly Comparison")
+                    st.markdown("### 1. Net Value Monthly Comparison")
                 else:
-                    st.markdown("### Quantity Monthly Comparison")
+                    st.markdown("### 2. Quantity Monthly Comparison")
                 
                 col_key = "Net" if mode == "Net" else "Qty"
 
@@ -1694,7 +1695,7 @@ with tab_customer:
 
             # 3. Wykres główny NET
             st.divider()
-            st.markdown("### Net Value Comparison")
+            st.markdown("### 3. Net Value Comparison")
             chart_vals = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
                 if orig_d is not None:
@@ -1782,15 +1783,15 @@ with tab_customer:
 
             # 4. Category Comparison
             if meta_cr["category"] == "All Categories":
-                render_cr_sub_analysis("Cat", "Category Comparison", "Category")
+                render_cr_sub_analysis("Cat", "4. Category Comparison", "Category")
             
             # 5. Brand Comparison
-            render_cr_sub_analysis("Brand", "Brand Comparison", "Brand")
+            render_cr_sub_analysis("Brand", "5. Brand Comparison", "Brand")
 
             # 6. L4L Table (SKU Level)
             def render_cr_l4l_table():
                 st.divider()
-                st.markdown("### L4L Table (SKU Level)")
+                st.markdown("### 6. L4L Table (SKU Level)")
                 
                 l4l_dfs = []
                 for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
@@ -1807,7 +1808,7 @@ with tab_customer:
                         
                 if l4l_dfs:
                     c_code = l4l_dfs[0][2]["Code"]
-                    c_desc = l4l_dfs[0][2]["Desc"]
+                    c_desc = base_cols["Desc"]
                     master_l4l = l4l_dfs[0][0]
                     for g, y, _ in l4l_dfs[1:]:
                         master_l4l = pd.merge(master_l4l, g, on=c_code, how="outer", suffixes=("", "_y"))
@@ -1850,7 +1851,7 @@ with tab_customer:
             # 7. Auto Insights
             st.divider()
             is_cat_all = (meta_cr["category"] == "All Categories")
-            st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta_cr['category']})")
+            st.markdown("### 7. Auto Insights (Category Focus)" if is_cat_all else f"### 7. Auto Insights (SKU Focus - {meta_cr['category']})")
             
             ins_dfs = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
