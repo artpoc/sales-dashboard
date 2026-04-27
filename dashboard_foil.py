@@ -1228,14 +1228,23 @@ with tab_overview:
     if len(loaded_dfs) < 1:
         st.warning("Please upload data.")
     else:
-        # Detekcja wspólnych miesięcy
+        # ZMIANA: Wyciągnięcie wszystkich wykrytych miesięcy (union) oraz wspólnych (intersection)
         common_months = MONTHS_ORDER.copy()
+        all_detected_months = set()
+
         for d, c in zip([df_curr, df_prev, df_old2], [cols_curr, cols_prev, cols_old2]):
             if d is not None:
-                common_months = [m for m in common_months if m in d[c["Month"]].unique().tolist()]
+                f_months = d[c["Month"]].dropna().unique().tolist()
+                common_months = [m for m in common_months if m in f_months]
+                all_detected_months.update(f_months)
+
+        # Sortowanie wykrytych miesięcy zgodnie ze stałym kalendarzem MONTHS_ORDER
+        all_detected_months = sorted(list(all_detected_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
 
         st.info(f"Detected common months: {', '.join(common_months)}" if common_months else "No common months detected.")
-        selected_months = st.multiselect("Select months for Overview YTD", MONTHS_ORDER, default=common_months, key="ov_months")
+        
+        # Multiselect proponuje do wyboru tylko wykryte miesiące (zamiast wszystkich 12-stu)
+        selected_months = st.multiselect("Select months for Overview YTD", options=all_detected_months, default=common_months, key="ov_months")
 
         if selected_months:
             # Aplikacja filtra miesięcy
@@ -1311,7 +1320,6 @@ with tab_overview:
 
                     y_newest = group_dfs[-1][1]
                     
-                    # Obliczenia YoY ZAWSZE względnie do najnowszego roku (np. 2026 vs 2025, 2026 vs 2024)
                     if len(group_dfs) == 2:
                         y1 = group_dfs[0][1]
                         master[f"YoY {y_newest} vs {y1}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1) if not master.empty else []
@@ -1422,15 +1430,13 @@ with tab_l4l:
             df_right = year_to_df[right_year_option]
             cols_right = year_to_cols[right_year_option]
 
-            months_left = sorted(
-                df_left[cols_left["Month"]].dropna().unique().tolist(),
-                key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99,
-            )
-            months_right = sorted(
-                df_right[cols_right["Month"]].dropna().unique().tolist(),
-                key=lambda m: MONTHS_ORDER.index(m) if m in MONTHS_ORDER else 99,
-            )
-            common_months = [m for m in months_left if m in months_right]
+            # Wyciągnięcie wszystkich wykrytych miesięcy (union) dla L4L oraz wspólnych (intersection)
+            all_det_months = set()
+            all_det_months.update(df_left[cols_left["Month"]].dropna().unique().tolist())
+            all_det_months.update(df_right[cols_right["Month"]].dropna().unique().tolist())
+            all_det_months = sorted(list(all_det_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
+            
+            common_months = [m for m in all_det_months if m in df_left[cols_left["Month"]].unique() and m in df_right[cols_right["Month"]].unique()]
 
             st.info(
                 f"Detected common months: {', '.join(common_months)}"
@@ -1438,9 +1444,10 @@ with tab_l4l:
                 else "No common months detected."
             )
 
+            # Multiselect proponuje do wyboru tylko wykryte miesiące
             selected_months_l4l = st.multiselect(
                 "Select months for L4L",
-                MONTHS_ORDER,
+                options=all_det_months,
                 default=common_months,
                 key="detailed_l4l_months",
             )
