@@ -47,7 +47,7 @@ def yoy_calc(new, old):
         return None
 
 def yoy_label(val, special: bool = False) -> str:
-    """Formatowanie procentów YoY ze strzałkami i kolorami."""
+    """Format YoY percentage with arrows and colors."""
     if special:
         return "Recovery to 0 ⚠️"
     if val is None:
@@ -63,7 +63,7 @@ def yoy_label(val, special: bool = False) -> str:
     return "0%"
 
 def percent_label(val) -> str:
-    """Formatowanie standardowych udziałów procentowych."""
+    """Format standard percentage values."""
     try:
         v = float(val)
         return f"{v:.1f}%"
@@ -85,7 +85,7 @@ MONTHS_ORDER = [
 SHORT_MONTHS = {
     "January": "JAN", "February": "FEB", "March": "MAR", "April": "APR", "May": "MAY", "June": "JUN",
     "July": "JUL", "August": "AUG", "September": "SEP", "October": "OCT", "November": "NOV", "December": "DEC",
-    "Total": "∑"
+    "Total": "∑", "Avg Month": "AVG"
 }
 
 # ================= HELPERS & CORE UTILS =================
@@ -137,12 +137,10 @@ def normalize_category(x: str) -> str:
     if "invitation" in x: return "Invitations"
     if "mask" in x: return "Masks"
     if "pinata" in x: return "Pinata"
-    # Zmiana z Articles na Other
     if "article" in x: return "Other" 
     if "horn" in x: return "Horns"
     return "Other"
 
-# Added 'Horns' and 'Other' to prevent ANY row from being excluded
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
@@ -239,7 +237,7 @@ def load_single_year_file(file, label: str):
     df[net_col] = df[net_col].apply(clean_number)
     df[qty_col] = df[qty_col].apply(clean_number)
 
-    # STANDARDIZACJA KOLUMN
+    # STANDARDIZING COLUMNS
     df["Month_Clean"] = df[month_col].astype(str).fillna("").replace("nan", "")
     df["Customer_Clean"] = df[customer_col].astype(str).fillna("").replace("nan", "")
     df["Country_Clean"] = df[country_col].astype(str).fillna("").replace("nan", "")
@@ -801,7 +799,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # AUTO INSIGHTS (TOP 5, GROWTH, DECLINE)
+    # AUTO INSIGHTS (TOP 5, GROWTH, DECLINE) FOR 2 YEARS
     st.markdown("### Auto Insights")
 
     cat_new_ins = (
@@ -818,6 +816,10 @@ def render_two_year_dashboard(
     )
     cat_ins = pd.merge(cat_new_ins, cat_old_ins, on=cat_col, how="outer").fillna(
         Decimal('0')
+    )
+    
+    cat_ins["Change_Raw"] = cat_ins.apply(
+        lambda x: clean_number(x.get(f"Net {year_new}", Decimal('0'))) - clean_number(x.get(f"Net {year_old}", Decimal('0'))), axis=1
     )
     cat_ins["YoY"] = cat_ins.apply(
         lambda x: yoy_calc(x.get(f"Net {year_new}", Decimal('0')), x.get(f"Net {year_old}", Decimal('0'))), axis=1
@@ -846,13 +848,14 @@ def render_two_year_dashboard(
         )
 
     st.write("#### Top 5 Growth (L4L)")
-    growth = cat_ins[cat_ins["YoY"] > 0].sort_values("YoY", ascending=False).head(5)
+    growth = cat_ins[cat_ins["Change_Raw"] > 0].sort_values("Change_Raw", ascending=False).head(5)
     if growth.empty:
         st.info("There is no growth in categories.")
     else:
         g_disp = growth.copy()
         g_disp[f"Net {year_old}"] = g_disp.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
         g_disp[f"Net {year_new}"] = g_disp.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
+        g_disp[f"Change {year_new} vs {year_old}"] = g_disp["Change_Raw"].apply(to_display_num)
         g_disp["YoY (%)"] = g_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(
             add_index(
@@ -861,6 +864,7 @@ def render_two_year_dashboard(
                         cat_col,
                         f"Net {year_old}",
                         f"Net {year_new}",
+                        f"Change {year_new} vs {year_old}",
                         "YoY (%)",
                     ]
                 ]
@@ -868,13 +872,14 @@ def render_two_year_dashboard(
         )
 
     st.write("#### Top 5 Decline (L4L)")
-    decline = cat_ins[cat_ins["YoY"] < 0].sort_values("YoY").head(5)
+    decline = cat_ins[cat_ins["Change_Raw"] < 0].sort_values("Change_Raw", ascending=True).head(5)
     if decline.empty:
         st.success("There is no decline in categories.")
     else:
         d_disp = decline.copy()
         d_disp[f"Net {year_old}"] = d_disp.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
         d_disp[f"Net {year_new}"] = d_disp.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
+        d_disp[f"Change {year_new} vs {year_old}"] = d_disp["Change_Raw"].apply(to_display_num)
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(
             add_index(
@@ -883,6 +888,7 @@ def render_two_year_dashboard(
                         cat_col,
                         f"Net {year_old}",
                         f"Net {year_new}",
+                        f"Change {year_new} vs {year_old}",
                         "YoY (%)",
                     ]
                 ]
@@ -1399,6 +1405,74 @@ with tab_overview:
         dfs_cust = [override_filter_cust(df_f, c_map, orig_d) for df_f, c_map, orig_d in zip(base_dfs, base_col_maps, [df_curr, df_prev, df_old2])]
         render_three_year_analysis(base_cols["Customer"], "4. Customer Comparison (Filtered by Country & Category)", dfs_cust, base_years, base_col_maps, "Customer", show_pie=False)
 
+        # ========= SEKCJA 5: Auto Insights (Overview) =========
+        st.divider()
+        st.markdown("### 5. Auto Insights (Category Focus)")
+        
+        ins_dfs_ov = []
+        for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+            if orig_d is not None:
+                d_f = orig_d.copy()
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta["country"]]
+                if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
+                if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
+                
+                g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                ins_dfs_ov.append((g, y, c["Cat"]))
+                
+        if len(ins_dfs_ov) >= 2:
+            c_cat = ins_dfs_ov[0][2]
+            master_ins_ov = ins_dfs_ov[0][0]
+            for g, y, _ in ins_dfs_ov[1:]:
+                master_ins_ov = pd.merge(master_ins_ov, g, on=c_cat, how="outer")
+            master_ins_ov = master_ins_ov.fillna(Decimal('0'))
+            
+            ins_chrono_ov = sorted(ins_dfs_ov, key=lambda x: x[1])
+            ov_years = [item[1] for item in ins_chrono_ov]
+            y_newest = ov_years[-1]
+            y1 = ov_years[-2]
+            
+            master_ins_ov["Change_1_Raw"] = master_ins_ov.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
+            master_ins_ov["YoY_1"] = master_ins_ov.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
+            
+            if len(ov_years) == 2:
+                master_ins_ov[f"Change {y_newest} vs {y1}"] = master_ins_ov["Change_1_Raw"].apply(to_display_num)
+                master_ins_ov[f"YoY {y_newest} vs {y1} (%)"] = master_ins_ov["YoY_1"].apply(yoy_label)
+                display_cols = [c_cat, f"Net {ov_years[0]}", f"Net {ov_years[1]}", f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
+            elif len(ov_years) == 3:
+                y0 = ov_years[0]
+                master_ins_ov["Change_2_Raw"] = master_ins_ov.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y0}", Decimal('0'))), axis=1)
+                master_ins_ov["YoY_2"] = master_ins_ov.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y0}", 0)), axis=1)
+                
+                master_ins_ov[f"Change {y_newest} vs {y1}"] = master_ins_ov["Change_1_Raw"].apply(to_display_num)
+                master_ins_ov[f"YoY {y_newest} vs {y1} (%)"] = master_ins_ov["YoY_1"].apply(yoy_label)
+                master_ins_ov[f"Change {y_newest} vs {y0}"] = master_ins_ov["Change_2_Raw"].apply(to_display_num)
+                master_ins_ov[f"YoY {y_newest} vs {y0} (%)"] = master_ins_ov["YoY_2"].apply(yoy_label)
+                
+                display_cols = [c_cat, f"Net {y0}", f"Net {y1}", f"Net {y_newest}", f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)", f"Change {y_newest} vs {y0}", f"YoY {y_newest} vs {y0} (%)"]
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("#### Top 5 Growth Categories")
+                growth = master_ins_ov[master_ins_ov["Change_1_Raw"] > 0].sort_values("Change_1_Raw", ascending=False).head(5)
+                if not growth.empty:
+                    disp = growth.copy()
+                    for y in ov_years:
+                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                    st.dataframe(add_index(disp[display_cols]))
+                else:
+                    st.info("No growth categories.")
+                    
+            with c2:
+                st.write("#### Top 5 Decline Categories")
+                decline = master_ins_ov[master_ins_ov["Change_1_Raw"] < 0].sort_values("Change_1_Raw", ascending=True).head(5)
+                if not decline.empty:
+                    disp = decline.copy()
+                    for y in ov_years:
+                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                    st.dataframe(add_index(disp[display_cols]))
+                else:
+                    st.success("No declining categories.")
 
 # ================= DETAILED L4L =================
 with tab_l4l:
@@ -1529,7 +1603,7 @@ with tab_customer:
         filtered_cr, meta_cr = apply_shared_filters(dfs_cr, base_cols, "cr", show_months=False)
         
         if meta_cr["customer"] == "All Customers":
-            st.info("⚠️ Proszę wybrać konkretnego klienta z filtra wyżej (Customer), aby wyświetlić dedykowaną analizę w tej zakładce.")
+            st.info("⚠️ Please select a specific customer from the filter above to view the dedicated analysis in this tab.")
         else:
             def render_monthly_table(mode="Net"):
                 if mode == "Net":
@@ -1554,16 +1628,18 @@ with tab_customer:
                             m_vals[m] = val
                             tot += val
                         m_vals["Total"] = tot
+                        m_vals["Avg Month"] = tot / Decimal('12')
                         year_data[y] = m_vals
 
                 if not year_data: return
 
                 available_years = sorted(list(year_data.keys()), reverse=True)
                 display_rows = []
+                col_keys = MONTHS_ORDER + ["Total", "Avg Month"]
 
                 for y in available_years:
                     row = {"Year": str(y)}
-                    for m in MONTHS_ORDER + ["Total"]:
+                    for m in col_keys:
                         row[SHORT_MONTHS[m]] = to_display_num(year_data[y][m])
                     display_rows.append(row)
 
@@ -1571,7 +1647,7 @@ with tab_customer:
                     y_newest = available_years[0]
                     y1 = available_years[1]
                     row_yoy = {"Year": f"∆ {y_newest} vs {y1}"}
-                    for m in MONTHS_ORDER + ["Total"]:
+                    for m in col_keys:
                         row_yoy[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
                     display_rows.append(row_yoy)
 
@@ -1579,7 +1655,7 @@ with tab_customer:
                     y_newest = available_years[0]
                     y0 = available_years[2]
                     row_yoy2 = {"Year": f"∆ {y_newest} vs {y0}"}
-                    for m in MONTHS_ORDER + ["Total"]:
+                    for m in col_keys:
                         row_yoy2[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y0][m]))
                     display_rows.append(row_yoy2)
 
@@ -1593,11 +1669,10 @@ with tab_customer:
             st.divider()
             render_monthly_table("Qty")
 
-            # Specjalny filtr dla miesięcy wpływający tylko na sekcje poniżej
+            # Filtr miesięcy oddziałujący tylko na poniższe sekcje
             st.divider()
             st.markdown("### ⚙️ Filter Months for Comparisons")
             
-            # Ekstrakcja historii miesięcy klienta
             all_cr_months = set()
             for orig_d, c in zip([df_old2, df_prev, df_curr], [cols_old2, cols_prev, cols_curr]):
                 if orig_d is not None:
@@ -1609,14 +1684,13 @@ with tab_customer:
                     
             all_cr_months = sorted(list(all_cr_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
             
-            # Wyłapujemy domyślnie tylko te miesiące, które pokrywają się z najnowszym rokiem
             default_cr_m = [m for m in newest_months if m in all_cr_months]
             if not default_cr_m:
                 default_cr_m = all_cr_months
                 
             cr_selected_months = st.multiselect("📅 Select Months", options=all_cr_months, default=default_cr_m, key="cr_sub_months")
 
-            # 3. Wykres główny NET (uwzględniający odfiltrowane miesiące)
+            # 3. Wykres główny NET
             st.divider()
             st.markdown("### 3. Net Value Comparison")
             chart_vals = []
@@ -1633,7 +1707,6 @@ with tab_customer:
             if chart_vals:
                 st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year"), use_container_width=True, key="cr_net_bar")
 
-            # Zrekonstruowana funkcja rozwiązująca wszystkie błędy
             def render_cr_sub_analysis(group_col_key, section_title, display_name):
                 st.divider()
                 st.markdown(f"### {section_title}")
@@ -1793,21 +1866,29 @@ with tab_customer:
                 y_newest = cr_years[-1]
                 y1 = cr_years[-2]
                 
-                master_ins["YoY_val"] = master_ins.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
+                master_ins["Change_1_Raw"] = master_ins.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
+                master_ins["YoY_1"] = master_ins.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
                 
                 if len(cr_years) == 2:
-                    master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_val"].apply(yoy_label)
-                    display_cols = [c_cat, f"Net {cr_years[0]}", f"Net {cr_years[1]}", f"YoY {y_newest} vs {y1} (%)"]
+                    master_ins[f"Change {y_newest} vs {y1}"] = master_ins["Change_1_Raw"].apply(to_display_num)
+                    master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_1"].apply(yoy_label)
+                    display_cols = [c_cat, f"Net {cr_years[0]}", f"Net {cr_years[1]}", f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
                 elif len(cr_years) == 3:
                     y0 = cr_years[0]
-                    master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_val"].apply(yoy_label)
-                    master_ins[f"YoY {y_newest} vs {y0} (%)"] = master_ins.apply(lambda x: yoy_label(yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y0}", 0))), axis=1)
-                    display_cols = [c_cat, f"Net {y0}", f"Net {y1}", f"Net {y_newest}", f"YoY {y_newest} vs {y1} (%)", f"YoY {y_newest} vs {y0} (%)"]
+                    master_ins["Change_2_Raw"] = master_ins.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y0}", Decimal('0'))), axis=1)
+                    master_ins["YoY_2"] = master_ins.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y0}", 0)), axis=1)
+                    
+                    master_ins[f"Change {y_newest} vs {y1}"] = master_ins["Change_1_Raw"].apply(to_display_num)
+                    master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_1"].apply(yoy_label)
+                    master_ins[f"Change {y_newest} vs {y0}"] = master_ins["Change_2_Raw"].apply(to_display_num)
+                    master_ins[f"YoY {y_newest} vs {y0} (%)"] = master_ins["YoY_2"].apply(yoy_label)
+                    
+                    display_cols = [c_cat, f"Net {y0}", f"Net {y1}", f"Net {y_newest}", f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)", f"Change {y_newest} vs {y0}", f"YoY {y_newest} vs {y0} (%)"]
 
                 c1, c2 = st.columns(2)
                 with c1:
                     st.write(f"#### Top 5 Growth Categories")
-                    growth = master_ins[master_ins["YoY_val"] > 0].sort_values("YoY_val", ascending=False).head(5)
+                    growth = master_ins[master_ins["Change_1_Raw"] > 0].sort_values("Change_1_Raw", ascending=False).head(5)
                     if not growth.empty:
                         disp = growth.copy()
                         for y in cr_years:
@@ -1818,7 +1899,7 @@ with tab_customer:
                         
                 with c2:
                     st.write(f"#### Top 5 Decline Categories")
-                    decline = master_ins[master_ins["YoY_val"] < 0].sort_values("YoY_val", ascending=True).head(5)
+                    decline = master_ins[master_ins["Change_1_Raw"] < 0].sort_values("Change_1_Raw", ascending=True).head(5)
                     if not decline.empty:
                         disp = decline.copy()
                         for y in cr_years:
