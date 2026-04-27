@@ -1,39 +1,36 @@
 
-# ===== PRO CORE PATCH (AUTO-INJECTED) =====
-from decimal import Decimal, ROUND_HALF_UP
-import pandas as pd
+# ===== PERFECT ENGINE INTEGRATION =====
+from decimal import Decimal, ROUND_HALF_UP, getcontext
+getcontext().prec = 28
 
-def to_decimal(x):
+def clean_number(x):
+    import pandas as pd
     if x is None or pd.isna(x):
         return Decimal('0')
-    try:
-        s = str(x)
-        s = s.replace(" ", "").replace("\xa0", "").replace("\u202f", "")
-        s = s.replace(",", ".")
-        if s in ["", "-", "nan", "None"]:
-            return Decimal('0')
-        return Decimal(s)
-    except:
+    s = str(x)
+    s = s.replace("\xa0","").replace("\u202f","").replace(" ","")
+    s = s.replace(",", ".")
+    if s in ["", "-", "nan", "None"]:
         return Decimal('0')
+    return Decimal(s)
 
-def decimal_sum(series):
-    return sum((to_decimal(v) for v in series), Decimal('0'))
+def sum_decimal(series):
+    total = Decimal('0')
+    for v in series:
+        total += clean_number(v)
+    return total
 
-def fix_sku(df, col):
-    df[col] = df[col].astype(str).str.strip()
-    return df
-
-def to_display_num(d):
+def to_int(d):
     try:
-        return int(Decimal(d).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        return int(d.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     except:
         return 0
 
 def yoy_calc(new, old):
-    new, old = to_decimal(new), to_decimal(old)
+    new, old = clean_number(new), clean_number(old)
     if old == 0:
         return Decimal('100') if new > 0 else Decimal('0')
-    return (new - old) / abs(old) * Decimal('100')
+    return (new-old)/old*Decimal('100')
 
 def yoy_label(v):
     try:
@@ -46,7 +43,10 @@ def yoy_label(v):
         return f"{v:.0f}% 🔴"
     return "0%"
 
-# ===== END PATCH =====
+def fix_sku(df, col):
+    df[col] = df[col].astype(str).str.strip()
+    return df
+# ===== END ENGINE =====
 
 
 import streamlit as st
