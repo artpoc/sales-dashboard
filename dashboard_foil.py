@@ -85,7 +85,7 @@ MONTHS_ORDER = [
 SHORT_MONTHS = {
     "January": "JAN", "February": "FEB", "March": "MAR", "April": "APR", "May": "MAY", "June": "JUN",
     "July": "JUL", "August": "AUG", "September": "SEP", "October": "OCT", "November": "NOV", "December": "DEC",
-    "Total": "∑", "Avg Month": "AVG"
+    "Total": "∑", "Avg Month": "AVG / Month"
 }
 
 # ================= HELPERS & CORE UTILS =================
@@ -754,7 +754,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # L4L TABLE
+    # L4L TABLE (Group strictly by Code to prevent split rows)
     st.markdown("### L4L Table")
     yoy_df_new = (
         df_new.groupby(code_col)
@@ -763,12 +763,13 @@ def render_two_year_dashboard(
     )
     yoy_df_old = (
         df_old.groupby(code_col)
-        .agg({net_old: sum_decimal, qty_old: sum_decimal})
+        .agg({desc_col: "first", net_old: sum_decimal, qty_old: sum_decimal})
         .reset_index()
     )
-    yoy = pd.merge(yoy_df_new, yoy_df_old, on=code_col, how="outer").fillna(
-        Decimal('0')
-    )
+    yoy = pd.merge(yoy_df_new, yoy_df_old, on=code_col, how="outer", suffixes=("", "_old"))
+    yoy[desc_col] = yoy[desc_col].fillna(yoy[f"{desc_col}_old"])
+    yoy = yoy.drop(columns=[f"{desc_col}_old"]).fillna(Decimal('0'))
+
     yoy["YoY"] = yoy.apply(
         lambda x: yoy_calc(x.get(net_new, 0), x.get(net_old, 0)), axis=1
     ) if not yoy.empty else []
@@ -803,22 +804,24 @@ def render_two_year_dashboard(
     is_cat_all = (category_filter == "All Categories")
     st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {category_filter})")
     
-    g_cols = [cat_col] if is_cat_all else [code_col, desc_col]
-    
-    cat_new_ins = (
-        df_new.groupby(g_cols)
-        .agg({net_new: sum_decimal})
-        .reset_index()
-        .rename(columns={net_new: f"Net {year_new}"})
-    )
-    cat_old_ins = (
-        df_old.groupby(g_cols)
-        .agg({net_old: sum_decimal})
-        .reset_index()
-        .rename(columns={net_old: f"Net {year_old}"})
-    )
-    cat_ins = pd.merge(cat_new_ins, cat_old_ins, on=g_cols, how="outer").fillna(Decimal('0'))
-    
+    if is_cat_all:
+        cat_new_ins = df_new.groupby(cat_col).agg({net_new: sum_decimal}).reset_index()
+        cat_old_ins = df_old.groupby(cat_col).agg({net_old: sum_decimal}).reset_index()
+        cat_ins = pd.merge(cat_new_ins, cat_old_ins, on=cat_col, how="outer").fillna(Decimal('0'))
+        g_cols = [cat_col]
+        disp_prefix = [cat_col]
+    else:
+        cat_new_ins = df_new.groupby(code_col).agg({desc_col: "first", net_new: sum_decimal}).reset_index()
+        cat_old_ins = df_old.groupby(code_col).agg({desc_col: "first", net_old: sum_decimal}).reset_index()
+        cat_ins = pd.merge(cat_new_ins, cat_old_ins, on=code_col, how="outer", suffixes=("", "_old"))
+        cat_ins[desc_col] = cat_ins[desc_col].fillna(cat_ins[f"{desc_col}_old"])
+        cat_ins = cat_ins.drop(columns=[f"{desc_col}_old"]).fillna(Decimal('0'))
+        g_cols = [code_col, desc_col]
+        cat_ins = cat_ins.rename(columns={code_col: "Code", desc_col: "Description"})
+        disp_prefix = ["Code", "Description"]
+
+    cat_ins = cat_ins.rename(columns={net_new: f"Net {year_new}", net_old: f"Net {year_old}"})
+
     cat_ins["Change_Raw"] = cat_ins.apply(
         lambda x: clean_number(x.get(f"Net {year_new}", Decimal('0'))) - clean_number(x.get(f"Net {year_old}", Decimal('0'))), axis=1
     )
@@ -827,12 +830,6 @@ def render_two_year_dashboard(
     ) if not cat_ins.empty else []
     
     cat_ins = sort_by_col_desc(cat_ins, f"Net {year_new}")
-
-    if not is_cat_all:
-        cat_ins = cat_ins.rename(columns={code_col: "Code", desc_col: "Description"})
-        disp_prefix = ["Code", "Description"]
-    else:
-        disp_prefix = [cat_col]
 
     st.write("#### Top 5 " + ("Categories" if is_cat_all else "SKUs"))
     ic1, ic2 = st.columns(2)
@@ -871,7 +868,6 @@ def render_two_year_dashboard(
         d_disp[f"Change {year_new} vs {year_old}"] = d_disp["Change_Raw"].apply(to_display_num)
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(add_index(d_disp[disp_prefix + [f"Net {year_old}", f"Net {year_new}", f"Change {year_new} vs {year_old}", "YoY (%)"]]))
-
 
     st.divider()
 
@@ -1175,31 +1171,21 @@ def render_single_year_dashboard(
 
     st.divider()
 
-    # AUTO INSIGHTS (Top 5 Categories/SKUs)
-    is_cat_all = (category_filter == "All Categories")
-    st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {category_filter})")
-    
-    g_cols = [cat_col] if is_cat_all else [code_col, desc_col]
-    
-    cat_ins = (
-        df.groupby(g_cols)
-        .agg({net_col: sum_decimal})
-        .reset_index()
-        .rename(columns={net_col: f"Net {year_name}"})
-    )
-    cat_ins = sort_by_col_desc(cat_ins, f"Net {year_name}")
-    
-    if not is_cat_all:
-        cat_ins = cat_ins.rename(columns={code_col: "Code", desc_col: "Description"})
-        disp_prefix = ["Code", "Description"]
-    else:
-        disp_prefix = [cat_col]
-
-    st.write(f"#### Top 5 " + ("Categories" if is_cat_all else "SKUs"))
-    top5 = cat_ins.head(5)
-    disp = top5.copy()
-    disp[f"Net {year_name}"] = disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
-    st.dataframe(add_index(disp[disp_prefix + [f"Net {year_name}"]]))
+    # AUTO INSIGHTS (Top 5 Categories)
+    if category_filter == "All Categories":
+        st.markdown("### Auto Insights")
+        cat_ins = (
+            df.groupby(cat_col)
+            .agg({net_col: sum_decimal})
+            .reset_index()
+            .rename(columns={net_col: f"Net {year_name}"})
+        )
+        cat_ins = sort_by_col_desc(cat_ins, f"Net {year_name}")
+        st.write("#### Top 5 Categories")
+        top5 = cat_ins.head(5)
+        disp = top5.copy()
+        disp[f"Net {year_name}"] = disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
+        st.dataframe(add_index(disp[[cat_col, f"Net {year_name}"]]))
 
 
 # ================= MAIN APP =================
@@ -1410,16 +1396,34 @@ with tab_overview:
                     d_f = d_f[d_f[c["Cat"]] == meta["category"]]
                 if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
                 
-                g_cols = [c["Cat"]] if is_cat_all else [c["Code"], c["Desc"]]
-                g = d_f.groupby(g_cols).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                ins_dfs_ov.append((g, y, g_cols))
+                if is_cat_all:
+                    g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                    ins_dfs_ov.append((g, y, c["Cat"]))
+                else:
+                    g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                    ins_dfs_ov.append((g, y, c["Code"]))
                 
         if len(ins_dfs_ov) >= 2:
-            g_cols_master = ins_dfs_ov[0][2]
-            master_ins_ov = ins_dfs_ov[0][0]
-            for g, y, _ in ins_dfs_ov[1:]:
-                master_ins_ov = pd.merge(master_ins_ov, g, on=g_cols_master, how="outer")
-            master_ins_ov = master_ins_ov.fillna(Decimal('0'))
+            if is_cat_all:
+                c_master_key = ins_dfs_ov[0][2]
+                master_ins_ov = ins_dfs_ov[0][0]
+                for g, y, _ in ins_dfs_ov[1:]:
+                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_master_key, how="outer")
+                master_ins_ov = master_ins_ov.fillna(Decimal('0'))
+                disp_prefix = [c_master_key]
+            else:
+                c_code = ins_dfs_ov[0][2]
+                c_desc = base_cols["Desc"]
+                master_ins_ov = ins_dfs_ov[0][0]
+                for g, y, _ in ins_dfs_ov[1:]:
+                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_code, how="outer", suffixes=("", "_y"))
+                    master_ins_ov[c_desc] = master_ins_ov[c_desc].fillna(master_ins_ov[c_desc + "_y"])
+                    master_ins_ov = master_ins_ov.drop(columns=[c_desc + "_y"])
+                for col in master_ins_ov.columns:
+                    if "Net" in col:
+                        master_ins_ov[col] = master_ins_ov[col].fillna(Decimal('0'))
+                master_ins_ov = master_ins_ov.rename(columns={c_code: "Code", c_desc: "Description"})
+                disp_prefix = ["Code", "Description"]
             
             ins_chrono_ov = sorted(ins_dfs_ov, key=lambda x: x[1])
             ov_years = [item[1] for item in ins_chrono_ov]
@@ -1429,12 +1433,6 @@ with tab_overview:
             master_ins_ov["Change_1_Raw"] = master_ins_ov.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
             master_ins_ov["YoY_1"] = master_ins_ov.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
             
-            if not is_cat_all:
-                master_ins_ov = master_ins_ov.rename(columns={g_cols_master[0]: "Code", g_cols_master[1]: "Description"})
-                disp_prefix = ["Code", "Description"]
-            else:
-                disp_prefix = [g_cols_master[0]]
-
             if len(ov_years) == 2:
                 master_ins_ov[f"Change {y_newest} vs {y1}"] = master_ins_ov["Change_1_Raw"].apply(to_display_num)
                 master_ins_ov[f"YoY {y_newest} vs {y1} (%)"] = master_ins_ov["YoY_1"].apply(yoy_label)
@@ -1605,6 +1603,10 @@ with tab_customer:
         if meta_cr["customer"] == "All Customers":
             st.info("⚠️ Please select a specific customer from the filter above to view the dedicated analysis in this tab.")
         else:
+            default_divisor = len(newest_months) if newest_months else 12
+            st.info(f"ℹ️ Averages are calculated using {default_divisor} months based on the newest data. You can adjust this divisor below.")
+            avg_divisor = st.slider("Select divisor for AVG / Month calculation:", min_value=1, max_value=12, value=default_divisor, step=1)
+
             def render_monthly_table(mode="Net"):
                 if mode == "Net":
                     st.markdown("### Net Value Monthly Comparison")
@@ -1628,7 +1630,7 @@ with tab_customer:
                             m_vals[m] = val
                             tot += val
                         m_vals["Total"] = tot
-                        m_vals["Avg Month"] = tot / Decimal('12')
+                        m_vals["Avg Month"] = tot / Decimal(str(avg_divisor))
                         year_data[y] = m_vals
 
                 if not year_data: return
@@ -1799,7 +1801,7 @@ with tab_customer:
                         if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                         if cr_selected_months: d_f = d_f[d_f[c["Month"]].isin(cr_selected_months)]
                         
-                        g = d_f.groupby([c["Code"], c["Desc"]]).agg({c["Net"]: sum_decimal, c["Qty"]: sum_decimal}).reset_index()
+                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal, c["Qty"]: sum_decimal}).reset_index()
                         g = g.rename(columns={c["Net"]: f"Net {y}", c["Qty"]: f"Qty {y}"})
                         l4l_dfs.append((g, y, c))
                         
@@ -1808,8 +1810,13 @@ with tab_customer:
                     c_desc = l4l_dfs[0][2]["Desc"]
                     master_l4l = l4l_dfs[0][0]
                     for g, y, _ in l4l_dfs[1:]:
-                        master_l4l = pd.merge(master_l4l, g, on=[c_code, c_desc], how="outer")
-                    master_l4l = master_l4l.fillna(Decimal('0'))
+                        master_l4l = pd.merge(master_l4l, g, on=c_code, how="outer", suffixes=("", "_y"))
+                        master_l4l[c_desc] = master_l4l[c_desc].fillna(master_l4l[c_desc + "_y"])
+                        master_l4l = master_l4l.drop(columns=[c_desc + "_y"])
+                    
+                    for col in master_l4l.columns:
+                        if "Net" in col or "Qty" in col:
+                            master_l4l[col] = master_l4l[col].fillna(Decimal('0'))
                     
                     l4l_chrono = sorted(l4l_dfs, key=lambda x: x[1])
                     y_newest = l4l_chrono[-1][1]
@@ -1855,16 +1862,34 @@ with tab_customer:
                         d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                     if cr_selected_months: d_f = d_f[d_f[c["Month"]].isin(cr_selected_months)]
                     
-                    g_cols = [c["Cat"]] if is_cat_all else [c["Code"], c["Desc"]]
-                    g = d_f.groupby(g_cols).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                    ins_dfs.append((g, y, g_cols))
+                    if is_cat_all:
+                        g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs.append((g, y, c["Cat"]))
+                    else:
+                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs.append((g, y, c["Code"]))
                     
             if len(ins_dfs) >= 2:
-                g_cols_master = ins_dfs[0][2]
-                master_ins = ins_dfs[0][0]
-                for g, y, _ in ins_dfs[1:]:
-                    master_ins = pd.merge(master_ins, g, on=g_cols_master, how="outer")
-                master_ins = master_ins.fillna(Decimal('0'))
+                if is_cat_all:
+                    c_master_key = ins_dfs[0][2]
+                    master_ins = ins_dfs[0][0]
+                    for g, y, _ in ins_dfs[1:]:
+                        master_ins = pd.merge(master_ins, g, on=c_master_key, how="outer")
+                    master_ins = master_ins.fillna(Decimal('0'))
+                    disp_prefix = [c_master_key]
+                else:
+                    c_code = ins_dfs[0][2]
+                    c_desc = base_cols["Desc"]
+                    master_ins = ins_dfs[0][0]
+                    for g, y, _ in ins_dfs[1:]:
+                        master_ins = pd.merge(master_ins, g, on=c_code, how="outer", suffixes=("", "_y"))
+                        master_ins[c_desc] = master_ins[c_desc].fillna(master_ins[c_desc + "_y"])
+                        master_ins = master_ins.drop(columns=[c_desc + "_y"])
+                    for col in master_ins.columns:
+                        if "Net" in col:
+                            master_ins[col] = master_ins[col].fillna(Decimal('0'))
+                    master_ins = master_ins.rename(columns={c_code: "Code", c_desc: "Description"})
+                    disp_prefix = ["Code", "Description"]
                 
                 ins_chrono = sorted(ins_dfs, key=lambda x: x[1])
                 cr_years = [item[1] for item in ins_chrono]
@@ -1874,12 +1899,6 @@ with tab_customer:
                 master_ins["Change_1_Raw"] = master_ins.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
                 master_ins["YoY_1"] = master_ins.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
                 
-                if not is_cat_all:
-                    master_ins = master_ins.rename(columns={g_cols_master[0]: "Code", g_cols_master[1]: "Description"})
-                    disp_prefix = ["Code", "Description"]
-                else:
-                    disp_prefix = [g_cols_master[0]]
-
                 if len(cr_years) == 2:
                     master_ins[f"Change {y_newest} vs {y1}"] = master_ins["Change_1_Raw"].apply(to_display_num)
                     master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_1"].apply(yoy_label)
