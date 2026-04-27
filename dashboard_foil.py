@@ -1,5 +1,3 @@
-# REFACTORED FULL VERSION (Decimal + SKU + sorting fixes)
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -19,21 +17,17 @@ def add_index(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def to_decimal(x):
+    """Convert Excel-like cell to Decimal, matching Excel behavior as close as possible."""
     if x is None or pd.isna(x):
         return Decimal('0')
     try:
-        if isinstance(x, (int, float, Decimal)):
+        if isinstance(x, (int, float)):
             return Decimal(str(x))
-        s = str(x)
-        s = (
-            s.replace(" ", "")
-             .replace("\xa0", "")
-             .replace("\u202f", "")
-             .replace("\u2009", "")
-        )
-        s = s.replace(",", ".").strip()
+        s = str(x).strip()
         if s in ["", "-", "None", "nan"]:
             return Decimal('0')
+        # Usuwa zwykłe spacje, twarde spacje, wąskie spacje i zamienia przecinki na kropki
+        s = s.replace(" ", "").replace("\xa0", "").replace("\u202f", "").replace(",", ".")
         return Decimal(s)
     except Exception:
         return Decimal('0')
