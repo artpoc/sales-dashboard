@@ -1,3 +1,54 @@
+
+# ===== PRO CORE PATCH (AUTO-INJECTED) =====
+from decimal import Decimal, ROUND_HALF_UP
+import pandas as pd
+
+def to_decimal(x):
+    if x is None or pd.isna(x):
+        return Decimal('0')
+    try:
+        s = str(x)
+        s = s.replace(" ", "").replace("\xa0", "").replace("\u202f", "")
+        s = s.replace(",", ".")
+        if s in ["", "-", "nan", "None"]:
+            return Decimal('0')
+        return Decimal(s)
+    except:
+        return Decimal('0')
+
+def decimal_sum(series):
+    return sum((to_decimal(v) for v in series), Decimal('0'))
+
+def fix_sku(df, col):
+    df[col] = df[col].astype(str).str.strip()
+    return df
+
+def to_display_num(d):
+    try:
+        return int(Decimal(d).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    except:
+        return 0
+
+def yoy_calc(new, old):
+    new, old = to_decimal(new), to_decimal(old)
+    if old == 0:
+        return Decimal('100') if new > 0 else Decimal('0')
+    return (new - old) / abs(old) * Decimal('100')
+
+def yoy_label(v):
+    try:
+        v = float(v)
+    except:
+        return "0%"
+    if v > 0:
+        return f"+{v:.0f}% 🟢"
+    elif v < 0:
+        return f"{v:.0f}% 🔴"
+    return "0%"
+
+# ===== END PATCH =====
+
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
