@@ -47,7 +47,7 @@ def yoy_calc(new, old):
         return None
 
 def yoy_label(val, special: bool = False) -> str:
-    """Formatowanie procentów YoY ze strzałkami i kolorami."""
+    """Format YoY percentage with arrows and colors."""
     if special:
         return "Recovery to 0 ⚠️"
     if val is None:
@@ -63,7 +63,7 @@ def yoy_label(val, special: bool = False) -> str:
     return "0%"
 
 def percent_label(val) -> str:
-    """Formatowanie standardowych udziałów procentowych."""
+    """Format standard percentage values."""
     try:
         v = float(val)
         return f"{v:.1f}%"
@@ -137,12 +137,10 @@ def normalize_category(x: str) -> str:
     if "invitation" in x: return "Invitations"
     if "mask" in x: return "Masks"
     if "pinata" in x: return "Pinata"
-    # Zmiana z Articles na Other
     if "article" in x: return "Other" 
     if "horn" in x: return "Horns"
     return "Other"
 
-# Added 'Horns' and 'Other' to prevent ANY row from being excluded
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
@@ -351,11 +349,7 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
                             key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
     if show_months:
-        # Default months are passed based on the newest year available
         default_m = default_months if default_months else all_det_months
-        # Ensure default months are actually in the options
-        default_m = [m for m in default_m if m in all_det_months]
-        
         key_months = f"{unique_prefix}_months"
         selected_months = c4.multiselect("📅 Months", options=all_det_months, default=default_m, key=key_months)
     else:
@@ -1235,18 +1229,24 @@ tab_overview, tab_l4l, tab_full, tab_customer = st.tabs(
     ]
 )
 
-newest_df, newest_cols = None, None
-if df_curr is not None:
-    newest_df, newest_cols = df_curr, cols_curr
-elif df_prev is not None:
-    newest_df, newest_cols = df_prev, cols_prev
-elif df_old2 is not None:
-    newest_df, newest_cols = df_old2, cols_old2
+# HIERARCHY LOGIC FOR MONTHS (Current Year > Previous Year > Older Year)
+hierarchy_df = None
+hierarchy_cols = None
 
-newest_months = []
-if newest_df is not None:
-    newest_months = sorted(
-        list(newest_df[newest_cols["Month"]].dropna().unique()), 
+if df_curr is not None:
+    hierarchy_df = df_curr
+    hierarchy_cols = cols_curr
+elif df_prev is not None:
+    hierarchy_df = df_prev
+    hierarchy_cols = cols_prev
+elif df_old2 is not None:
+    hierarchy_df = df_old2
+    hierarchy_cols = cols_old2
+
+hierarchy_months = []
+if hierarchy_df is not None:
+    hierarchy_months = sorted(
+        list(hierarchy_df[hierarchy_cols["Month"]].dropna().unique()), 
         key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99
     )
 
@@ -1260,10 +1260,10 @@ with tab_overview:
     if len(loaded_dfs) < 1:
         st.warning("Please upload data.")
     else:
-        st.info(f"Detected months in latest data: {', '.join(newest_months)}" if newest_months else "No months detected.")
+        st.info(f"ℹ️ Months detected based on priority hierarchy (Current > Previous > Older): {', '.join(hierarchy_months)}" if hierarchy_months else "No months detected.")
         
-        base_cols = newest_cols
-        filtered_dfs, meta = apply_shared_filters(loaded_dfs, base_cols, "ov", default_months=newest_months)
+        base_cols = hierarchy_cols
+        filtered_dfs, meta = apply_shared_filters(loaded_dfs, base_cols, "ov", default_months=hierarchy_months)
 
         df_old2_f = df_prev_f = df_curr_f = None
         f_idx = 0
@@ -1336,7 +1336,7 @@ with tab_overview:
                             plot_df = plot_df.groupby(group_col, as_index=False)[[f"Net {y}"]].sum()
 
                         with pie_cols[i]:
-                            st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} Pie {y}"), use_container_width=True, key=f"ov_{group_col}_{y}_pie_{st.session_state.get('run_id', 0)}")
+                            st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} Pie {y}"), use_container_width=True, key=f"ov_{group_col}_{y}_pie")
 
                 display_df = master.copy()
                 for g, y in group_dfs:
@@ -1540,7 +1540,7 @@ with tab_l4l:
             all_det_months.update(df_right[cols_right["Month"]].dropna().unique().tolist())
             all_det_months = sorted(list(all_det_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
             
-            common_months = [m for m in newest_months if m in all_det_months]
+            common_months = [m for m in hierarchy_months if m in all_det_months]
             if not common_months: common_months = all_det_months
 
             st.markdown("### Filters for Detailed L4L")
@@ -1614,15 +1614,15 @@ with tab_customer:
     if len(dfs_cr) < 1:
         st.warning("Please upload data.")
     else:
-        base_cols = newest_cols
+        base_cols = hierarchy_cols
         
         filtered_cr, meta_cr = apply_shared_filters(dfs_cr, base_cols, "cr", show_months=False)
         
         if meta_cr["customer"] == "All Customers":
             st.info("⚠️ Please select a specific customer from the filter above to view the dedicated analysis in this tab.")
         else:
-            default_divisor = len(newest_months) if newest_months else 12
-            st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on the newest data. You can adjust this divisor below.")
+            default_divisor = len(hierarchy_months) if hierarchy_months else 12
+            st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on the highest priority file (Current Year > Previous Year > Older Year). You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
 
             def render_monthly_table(mode="Net"):
@@ -1710,7 +1710,7 @@ with tab_customer:
                     
             all_cr_months = sorted(list(all_cr_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
             
-            default_cr_m = [m for m in newest_months if m in all_cr_months]
+            default_cr_m = [m for m in hierarchy_months if m in all_cr_months]
             if not default_cr_m:
                 default_cr_m = all_cr_months
                 
