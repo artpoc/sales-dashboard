@@ -47,7 +47,7 @@ def yoy_calc(new, old):
         return None
 
 def yoy_label(val, special: bool = False) -> str:
-    """Format YoY percentage with arrows and colors."""
+    """Formatowanie procentów YoY ze strzałkami i kolorami."""
     if special:
         return "Recovery to 0 ⚠️"
     if val is None:
@@ -63,7 +63,7 @@ def yoy_label(val, special: bool = False) -> str:
     return "0%"
 
 def percent_label(val) -> str:
-    """Format standard percentage values."""
+    """Formatowanie standardowych udziałów procentowych."""
     try:
         v = float(val)
         return f"{v:.1f}%"
@@ -137,10 +137,12 @@ def normalize_category(x: str) -> str:
     if "invitation" in x: return "Invitations"
     if "mask" in x: return "Masks"
     if "pinata" in x: return "Pinata"
+    # Zmiana z Articles na Other
     if "article" in x: return "Other" 
     if "horn" in x: return "Horns"
     return "Other"
 
+# Added 'Horns' and 'Other' to prevent ANY row from being excluded
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
@@ -754,7 +756,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # L4L TABLE (Group strictly by Code)
+    # L4L TABLE (Group strictly by Code to prevent split rows)
     st.markdown("### L4L Table")
     yoy_df_new = (
         df_new.groupby(code_col)
@@ -1431,6 +1433,7 @@ with tab_overview:
             y_newest = ov_years[-1]
             y1 = ov_years[-2]
             
+            # NOWOŚĆ: Obliczanie Change Raw jako różnicy między wartością Net w najnowszym i poprzednim roku
             master_ins_ov["Change_1_Raw"] = master_ins_ov.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
             master_ins_ov["YoY_1"] = master_ins_ov.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
             
@@ -1605,8 +1608,8 @@ with tab_customer:
             st.info("⚠️ Please select a specific customer from the filter above to view the dedicated analysis in this tab.")
         else:
             default_divisor = len(newest_months) if newest_months else 12
-            st.info(f"ℹ️ Averages are calculated using {default_divisor} months based on the newest data. You can adjust this divisor below.")
-            avg_divisor = st.slider("Select divisor for AVG / Month calculation:", min_value=1, max_value=12, value=default_divisor, step=1)
+            st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on the newest data. You can adjust this divisor below.")
+            avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
 
             def render_monthly_table(mode="Net"):
                 if mode == "Net":
@@ -1626,12 +1629,20 @@ with tab_customer:
 
                         m_vals = {}
                         tot = Decimal('0')
+                        # Obliczanie Total i miesięcy
                         for m in MONTHS_ORDER:
                             val = sum_decimal(d_f[d_f[c["Month"]] == m][c[col_key]])
                             m_vals[m] = val
                             tot += val
                         m_vals["Total"] = tot
-                        m_vals["Avg Month"] = tot / Decimal(str(avg_divisor))
+                        
+                        # ZMIANA: Avg Month opiera się tylko na pierwszych 'avg_divisor' miesiącach z MONTHS_ORDER
+                        selected_months_for_avg = MONTHS_ORDER[:avg_divisor]
+                        partial_sum = Decimal('0')
+                        for m in selected_months_for_avg:
+                            partial_sum += m_vals[m]
+                            
+                        m_vals["Avg Month"] = partial_sum / Decimal(str(avg_divisor))
                         year_data[y] = m_vals
 
                 if not year_data: return
