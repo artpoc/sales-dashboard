@@ -349,11 +349,12 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
                             key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
     if show_months:
-        default_m = default_months if default_months else all_det_months
+        # ZMIANA: Listą opcji i wartością domyślną są wyłącznie miesiące wykryte w zmiennej default_months (czyli z hierarchii)
+        options_m = default_months if default_months else all_det_months
         key_months = f"{unique_prefix}_months"
-        selected_months = c4.multiselect("📅 Months", options=all_det_months, default=default_m, key=key_months)
+        selected_months = c4.multiselect("📅 Months", options=options_m, default=options_m, key=key_months)
     else:
-        selected_months = all_det_months
+        selected_months = default_months if default_months else all_det_months
 
     filtered_dfs = []
     for df in dfs:
@@ -1535,20 +1536,12 @@ with tab_l4l:
             df_right = year_to_df[right_year_option]
             cols_right = year_to_cols[right_year_option]
 
-            all_det_months = set()
-            all_det_months.update(df_left[cols_left["Month"]].dropna().unique().tolist())
-            all_det_months.update(df_right[cols_right["Month"]].dropna().unique().tolist())
-            all_det_months = sorted(list(all_det_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
-            
-            common_months = [m for m in hierarchy_months if m in all_det_months]
-            if not common_months: common_months = all_det_months
-
             st.markdown("### Filters for Detailed L4L")
             filtered_list, meta = apply_shared_filters(
                 [df_left, df_right],
                 cols_left,
                 unique_prefix="l4l",
-                default_months=common_months
+                default_months=hierarchy_months
             )
 
             left_filtered, right_filtered = filtered_list
@@ -1659,7 +1652,7 @@ with tab_customer:
 
                 if not year_data: return
 
-                available_years = sorted(list(year_data.keys()))
+                available_years = sorted(list(year_data.keys()), reverse=True)
                 display_rows = []
                 col_keys = MONTHS_ORDER + ["Total", "Avg Month"]
 
@@ -1670,16 +1663,16 @@ with tab_customer:
                     display_rows.append(row)
 
                 if len(available_years) >= 2:
-                    y_newest = available_years[-1]
-                    y1 = available_years[-2]
+                    y_newest = available_years[0]
+                    y1 = available_years[1]
                     row_yoy = {"Year": f"∆ {y_newest} vs {y1}"}
                     for m in col_keys:
                         row_yoy[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
                     display_rows.append(row_yoy)
 
                 if len(available_years) == 3:
-                    y_newest = available_years[-1]
-                    y0 = available_years[0]
+                    y_newest = available_years[0]
+                    y0 = available_years[2]
                     row_yoy2 = {"Year": f"∆ {y_newest} vs {y0}"}
                     for m in col_keys:
                         row_yoy2[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y0][m]))
@@ -1699,26 +1692,11 @@ with tab_customer:
             st.divider()
             st.markdown("### ⚙️ Filter Months for Comparisons")
             
-            all_cr_months = set()
-            for orig_d, c in zip([df_old2, df_prev, df_curr], [cols_old2, cols_prev, cols_curr]):
-                if orig_d is not None:
-                    d_f = orig_d.copy()
-                    if meta_cr["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
-                    if meta_cr["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta_cr["customer"]]
-                    if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
-                    all_cr_months.update(d_f[c["Month"]].dropna().unique().tolist())
-                    
-            all_cr_months = sorted(list(all_cr_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
-            
-            default_cr_m = [m for m in hierarchy_months if m in all_cr_months]
-            if not default_cr_m:
-                default_cr_m = all_cr_months
-                
-            cr_selected_months = st.multiselect("📅 Select Months", options=all_cr_months, default=default_cr_m, key="cr_sub_months")
+            cr_selected_months = st.multiselect("📅 Select Months", options=hierarchy_months, default=hierarchy_months, key="cr_sub_months")
 
             # 3. Wykres główny NET
             st.divider()
-            st.markdown("### Net Value Comparison")
+            st.markdown("### 3. Net Value Comparison")
             chart_vals = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
                 if orig_d is not None:
@@ -1816,15 +1794,15 @@ with tab_customer:
 
             # 4. Category Comparison
             if meta_cr["category"] == "All Categories":
-                render_cr_sub_analysis("Cat", "Category Comparison", "Category")
+                render_cr_sub_analysis("Cat", "4. Category Comparison", "Category")
             
             # 5. Brand Comparison
-            render_cr_sub_analysis("Brand", "Brand Comparison", "Brand")
+            render_cr_sub_analysis("Brand", "5. Brand Comparison", "Brand")
 
             # 6. L4L Table (SKU Level)
             def render_cr_l4l_table():
                 st.divider()
-                st.markdown("### L4L Table (SKU Level)")
+                st.markdown("### 6. L4L Table (SKU Level)")
                 
                 l4l_dfs = []
                 for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
@@ -1884,7 +1862,7 @@ with tab_customer:
             # 7. Auto Insights
             st.divider()
             is_cat_all = (meta_cr["category"] == "All Categories")
-            st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta_cr['category']})")
+            st.markdown("### 7. Auto Insights (Category Focus)" if is_cat_all else f"### 7. Auto Insights (SKU Focus - {meta_cr['category']})")
             
             ins_dfs = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
