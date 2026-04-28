@@ -47,7 +47,7 @@ def yoy_calc(new, old):
         return None
 
 def yoy_label(val, special: bool = False) -> str:
-    """Format YoY percentage with arrows and colors."""
+    """Formatowanie procentów YoY ze strzałkami i kolorami."""
     if special:
         return "Recovery to 0 ⚠️"
     if val is None:
@@ -63,7 +63,7 @@ def yoy_label(val, special: bool = False) -> str:
     return "0%"
 
 def percent_label(val) -> str:
-    """Format standard percentage values."""
+    """Formatowanie standardowych udziałów procentowych."""
     try:
         v = float(val)
         return f"{v:.1f}%"
@@ -137,10 +137,12 @@ def normalize_category(x: str) -> str:
     if "invitation" in x: return "Invitations"
     if "mask" in x: return "Masks"
     if "pinata" in x: return "Pinata"
+    # Zmiana z Articles na Other
     if "article" in x: return "Other" 
     if "horn" in x: return "Horns"
     return "Other"
 
+# Added 'Horns' and 'Other' to prevent ANY row from being excluded
 ALLOWED_CATEGORIES = [
     "Napkins", "Hats", "Banner", "Straws", "Bags", "Plates", "Paper Cups",
     "Tablecover", "Reusable", "Foil", "Wooden", "Candles", "Latex",
@@ -833,7 +835,7 @@ def render_two_year_dashboard(
         lambda x: yoy_calc(x.get(f"Net {year_new}", Decimal('0')), x.get(f"Net {year_old}", Decimal('0'))), axis=1
     ) if not cat_ins.empty else []
     
-    cat_ins = sort_by_col_desc(cat_ins, f"Net {year_new}")
+    cat_ins = sort_by_col_desc(cat_ins, "Change_Raw")
 
     st.write("#### Top 5 " + ("Categories" if is_cat_all else "SKUs"))
     ic1, ic2 = st.columns(2)
@@ -1306,23 +1308,23 @@ with tab_overview:
                     master = pd.merge(master, g, on=group_col, how="outer")
                 master = master.fillna(Decimal('0'))
 
-                group_dfs_chrono = sorted(group_dfs, key=lambda x: x[1])
-                y_newest = group_dfs_chrono[-1][1]
+                group_dfs.reverse()
+                y_newest = group_dfs[-1][1]
                 
-                if len(group_dfs_chrono) == 2:
-                    y1 = group_dfs_chrono[0][1]
+                if len(group_dfs) == 2:
+                    y1 = group_dfs[0][1]
                     master[f"YoY {y_newest} vs {y1}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1) if not master.empty else []
-                elif len(group_dfs_chrono) == 3:
-                    y0 = group_dfs_chrono[0][1]
-                    y1 = group_dfs_chrono[1][1]
+                elif len(group_dfs) == 3:
+                    y0 = group_dfs[0][1]
+                    y1 = group_dfs[1][1]
                     master[f"YoY {y_newest} vs {y1}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1) if not master.empty else []
                     master[f"YoY {y_newest} vs {y0}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y0}", 0)), axis=1) if not master.empty else []
 
                 master = sort_by_col_desc(master, f"Net {y_newest}")
 
                 if show_pie:
-                    pie_cols = st.columns(len(group_dfs_chrono))
-                    for i, (g, y) in enumerate(group_dfs_chrono):
+                    pie_cols = st.columns(len(group_dfs))
+                    for i, (g, y) in enumerate(group_dfs):
                         plot_df = master.copy()
                         plot_df[f"Net {y}"] = plot_df.get(f"Net {y}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
                         plot_df.loc[plot_df[f"Net {y}"] < 0, f"Net {y}"] = 0 
@@ -1337,15 +1339,15 @@ with tab_overview:
                             st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} Pie {y}"), use_container_width=True, key=f"ov_{group_col}_{y}_pie_{st.session_state.get('run_id', 0)}")
 
                 display_df = master.copy()
-                for g, y in group_dfs_chrono:
+                for g, y in group_dfs:
                     display_df[f"Net {y}"] = display_df.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
                 
-                if len(group_dfs_chrono) == 2:
-                    y1 = group_dfs_chrono[0][1]
+                if len(group_dfs) == 2:
+                    y1 = group_dfs[0][1]
                     display_df[f"YoY {y_newest} vs {y1} (%)"] = display_df.get(f"YoY {y_newest} vs {y1}", pd.Series(dtype=str)).apply(yoy_label)
                     display_df = display_df.drop(columns=[f"YoY {y_newest} vs {y1}"], errors='ignore')
-                elif len(group_dfs_chrono) == 3:
-                    y0, y1 = group_dfs_chrono[0][1], group_dfs_chrono[1][1]
+                elif len(group_dfs) == 3:
+                    y0, y1 = group_dfs[0][1], group_dfs[1][1]
                     display_df[f"YoY {y_newest} vs {y1} (%)"] = display_df.get(f"YoY {y_newest} vs {y1}", pd.Series(dtype=str)).apply(yoy_label)
                     display_df[f"YoY {y_newest} vs {y0} (%)"] = display_df.get(f"YoY {y_newest} vs {y0}", pd.Series(dtype=str)).apply(yoy_label)
                     display_df = display_df.drop(columns=[f"YoY {y_newest} vs {y1}", f"YoY {y_newest} vs {y0}"], errors='ignore')
@@ -1353,13 +1355,13 @@ with tab_overview:
                 display_df = display_df.rename(columns={group_col: display_name})
                 
                 cols_order = [display_name]
-                for _, y in group_dfs_chrono:
+                for _, y in group_dfs:
                     cols_order.append(f"Net {y}")
-                if len(group_dfs_chrono) == 2:
-                    cols_order.append(f"YoY {y_newest} vs {group_dfs_chrono[0][1]} (%)")
-                elif len(group_dfs_chrono) == 3:
-                    cols_order.append(f"YoY {y_newest} vs {group_dfs_chrono[1][1]} (%)")
-                    cols_order.append(f"YoY {y_newest} vs {group_dfs_chrono[0][1]} (%)")
+                if len(group_dfs) == 2:
+                    cols_order.append(f"YoY {y_newest} vs {group_dfs[0][1]} (%)")
+                elif len(group_dfs) == 3:
+                    cols_order.append(f"YoY {y_newest} vs {group_dfs[1][1]} (%)")
+                    cols_order.append(f"YoY {y_newest} vs {group_dfs[0][1]} (%)")
                 
                 st.dataframe(add_index(display_df[cols_order]), use_container_width=True)
 
@@ -1625,9 +1627,9 @@ with tab_customer:
 
             def render_monthly_table(mode="Net"):
                 if mode == "Net":
-                    st.markdown("### Net Value Monthly Comparison")
+                    st.markdown("### 1. Net Value Monthly Comparison")
                 else:
-                    st.markdown("### Quantity Monthly Comparison")
+                    st.markdown("### 2. Quantity Monthly Comparison")
                 
                 col_key = "Net" if mode == "Net" else "Qty"
 
