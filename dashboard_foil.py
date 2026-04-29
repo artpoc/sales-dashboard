@@ -353,7 +353,6 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
         default_m = [m for m in default_m if m in all_det_months]
         
         key_months = f"{unique_prefix}_months"
-        # Użytkownik ma pełną dowolność usunięcia lub dodania miesiąca z dostępnej listy
         selected_months = c4.multiselect("📅 Months", options=all_det_months, default=default_m, key=key_months)
     else:
         selected_months = all_det_months
@@ -757,7 +756,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # L4L TABLE
+    # L4L TABLE (Group strictly by Code to prevent split rows)
     st.markdown("### L4L Table")
     yoy_df_new = (
         df_new.groupby(code_col)
@@ -1115,18 +1114,24 @@ tab_overview, tab_l4l, tab_full, tab_customer = st.tabs(
     ]
 )
 
-newest_df, newest_cols = None, None
-if df_curr is not None:
-    newest_df, newest_cols = df_curr, cols_curr
-elif df_prev is not None:
-    newest_df, newest_cols = df_prev, cols_prev
-elif df_old2 is not None:
-    newest_df, newest_cols = df_old2, cols_old2
+# HIERARCHY LOGIC FOR MONTHS (Current Year > Previous Year > Older Year)
+hierarchy_df = None
+hierarchy_cols = None
 
-newest_months = []
-if newest_df is not None:
-    newest_months = sorted(
-        list(newest_df[newest_cols["Month"]].dropna().unique()), 
+if df_curr is not None:
+    hierarchy_df = df_curr
+    hierarchy_cols = cols_curr
+elif df_prev is not None:
+    hierarchy_df = df_prev
+    hierarchy_cols = cols_prev
+elif df_old2 is not None:
+    hierarchy_df = df_old2
+    hierarchy_cols = cols_old2
+
+hierarchy_months = []
+if hierarchy_df is not None:
+    hierarchy_months = sorted(
+        list(hierarchy_df[hierarchy_cols["Month"]].dropna().unique()), 
         key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99
     )
 
@@ -1140,10 +1145,10 @@ with tab_overview:
     if len(loaded_dfs) < 1:
         st.warning("Please upload data.")
     else:
-        st.info(f"ℹ️ Months detected based on priority hierarchy (Current > Previous > Older): {', '.join(newest_months)}" if newest_months else "No months detected.")
+        st.info(f"ℹ️ Default months selected based on the highest priority file (Current Year > Previous Year > Older Year). You can modify them in the filter below.")
         
-        base_cols = newest_cols
-        filtered_dfs, meta = apply_shared_filters(loaded_dfs, base_cols, "ov", default_months=newest_months)
+        base_cols = hierarchy_cols
+        filtered_dfs, meta = apply_shared_filters(loaded_dfs, base_cols, "ov", default_months=hierarchy_months)
 
         df_old2_f = df_prev_f = df_curr_f = None
         f_idx = 0
@@ -1379,12 +1384,14 @@ with tab_l4l:
             df_right = year_to_df[right_year_option]
             cols_right = year_to_cols[right_year_option]
 
+            st.info(f"ℹ️ Default months selected based on the highest priority file (Current Year > Previous Year > Older Year). You can modify them in the filter below.")
+
             st.markdown("### Filters for Detailed L4L")
             filtered_list, meta = apply_shared_filters(
                 [df_left, df_right],
                 cols_left,
                 unique_prefix="l4l",
-                default_months=newest_months
+                default_months=hierarchy_months
             )
 
             left_filtered, right_filtered = filtered_list
@@ -1457,15 +1464,48 @@ with tab_customer:
         if meta_cr["customer"] == "All Customers":
             st.info("⚠️ Please select a specific customer from the filter above to view the dedicated analysis in this tab.")
         else:
-            default_divisor = len(newest_months) if newest_months else 12
+            # 1. KPI Current vs Previous
+            st.markdown("### KPI (Current vs Previous)")
+            cr_valid_dfs = []
+            for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+                if orig_d is not None:
+                    d_f = orig_d.copy()
+                    if meta_cr["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
+                    if meta_cr["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta_cr["customer"]]
+                    if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
+                    if hierarchy_months: d_f = d_f[d_f[c["Month"]].isin(hierarchy_months)] # KPI domyślnie po hierarchy months
+                    cr_valid_dfs.append((d_f, y, c))
+            
+            cr_valid_dfs_chrono = sorted(cr_valid_dfs, key=lambda x: x[1])
+
+            if len(cr_valid_dfs_chrono) >= 2:
+                d_new, y_new, c_new = cr_valid_dfs_chrono[-1]
+                d_old, y_old, c_old = cr_valid_dfs_chrono[-2]
+
+                s_new_net = sum_decimal(d_new[c_new["Net"]])
+                s_old_net = sum_decimal(d_old[c_old["Net"]])
+                s_new_qty = sum_decimal(d_new[c_new["Qty"]])
+                s_old_qty = sum_decimal(d_old[c_old["Qty"]])
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric(f"Net {y_old} (EUR)", format_number_plain(s_old_net))
+                c2.metric(f"Net {y_new} (EUR)", format_number_plain(s_new_net), yoy_label(yoy_calc(s_new_net, s_old_net)))
+                c3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
+                c4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
+            else:
+                st.info("Not enough data to calculate comparison KPIs (need at least 2 years).")
+                
+            st.divider()
+            
+            default_divisor = len(hierarchy_months) if hierarchy_months else 12
             st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on the highest priority file (Current Year > Previous Year > Older Year). You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
 
             def render_monthly_table(mode="Net"):
                 if mode == "Net":
-                    st.markdown("### 1. Net Value Monthly Comparison")
+                    st.markdown("### Net Value Monthly Comparison")
                 else:
-                    st.markdown("### 2. Quantity Monthly Comparison")
+                    st.markdown("### Quantity Monthly Comparison")
                 
                 col_key = "Net" if mode == "Net" else "Qty"
 
@@ -1495,7 +1535,7 @@ with tab_customer:
 
                 if not year_data: return
 
-                available_years = sorted(list(year_data.keys()), reverse=True)
+                available_years = sorted(list(year_data.keys()))
                 display_rows = []
                 col_keys = MONTHS_ORDER + ["Total", "Avg Month"]
 
@@ -1506,8 +1546,8 @@ with tab_customer:
                     display_rows.append(row)
 
                 if len(available_years) >= 2:
-                    y_newest = available_years[0]
-                    y1 = available_years[1]
+                    y_newest = available_years[-1]
+                    y1 = available_years[-2]
                     row_yoy = {"Year": f"∆ {y_newest} vs {y1}"}
                     for m in col_keys:
                         row_yoy[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
@@ -1516,10 +1556,8 @@ with tab_customer:
                 df_disp = pd.DataFrame(display_rows)
                 st.dataframe(df_disp, use_container_width=True, hide_index=True)
 
-            # 1. Tabela NET VALUE
+            # Monthly Tables
             render_monthly_table("Net")
-            
-            # 2. Tabela QUANTITY
             st.divider()
             render_monthly_table("Qty")
 
@@ -1538,16 +1576,16 @@ with tab_customer:
                     
             all_cr_months = sorted(list(all_cr_months), key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
             
-            default_cr_m = [m for m in newest_months if m in all_cr_months]
+            default_cr_m = [m for m in hierarchy_months if m in all_cr_months]
             if not default_cr_m:
                 default_cr_m = all_cr_months
                 
             cr_selected_months = st.multiselect("📅 Select Months", options=all_cr_months, default=default_cr_m, key="cr_sub_months")
 
-            # 3. KPI Current vs Previous
+            # Wykres główny NET
             st.divider()
-            st.markdown("### 3. KPI (Current vs Previous)")
-            cr_valid_dfs = []
+            st.markdown("### Net Value Comparison")
+            chart_vals = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
                 if orig_d is not None:
                     d_f = orig_d.copy()
@@ -1555,36 +1593,11 @@ with tab_customer:
                     if meta_cr["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta_cr["customer"]]
                     if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                     if cr_selected_months: d_f = d_f[d_f[c["Month"]].isin(cr_selected_months)]
-                    cr_valid_dfs.append((d_f, y, c))
-            
-            cr_valid_dfs_chrono = sorted(cr_valid_dfs, key=lambda x: x[1])
-
-            if len(cr_valid_dfs_chrono) >= 2:
-                d_new, y_new, c_new = cr_valid_dfs_chrono[-1]
-                d_old, y_old, c_old = cr_valid_dfs_chrono[-2]
-
-                s_new_net = sum_decimal(d_new[c_new["Net"]])
-                s_old_net = sum_decimal(d_old[c_old["Net"]])
-                s_new_qty = sum_decimal(d_new[c_new["Qty"]])
-                s_old_qty = sum_decimal(d_old[c_old["Qty"]])
-
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric(f"Net {y_old} (EUR)", format_number_plain(s_old_net))
-                c2.metric(f"Net {y_new} (EUR)", format_number_plain(s_new_net), yoy_label(yoy_calc(s_new_net, s_old_net)))
-                c3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
-                c4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
-            else:
-                st.info("Not enough data to calculate comparison KPIs (need at least 2 years).")
-
-            # 4. Wykres główny NET
-            st.divider()
-            st.markdown("### 4. Net Value Comparison")
-            chart_vals = []
-            for d_f, y, c in cr_valid_dfs_chrono:
-                chart_vals.append({"Year": y, "Net": float(sum_decimal(d_f[c["Net"]]))})
+                    
+                    chart_vals.append({"Year": y, "Net": float(sum_decimal(d_f[c["Net"]]))})
             
             if chart_vals:
-                st.plotly_chart(px.bar(pd.DataFrame(chart_vals), x="Year", y="Net", text="Net", color="Year"), use_container_width=True, key="cr_net_bar")
+                st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year"), use_container_width=True, key="cr_net_bar")
 
             def render_cr_sub_analysis(group_col_key, section_title, display_name):
                 st.divider()
@@ -1644,7 +1657,7 @@ with tab_customer:
                         y1 = group_dfs_chrono[-2][1]
                         display_df[f"YoY {y_newest} vs {y1} (%)"] = display_df.get(f"YoY {y_newest} vs {y1}", pd.Series(dtype=str)).apply(yoy_label)
                         display_df = display_df.drop(columns=[f"YoY {y_newest} vs {y1}"], errors='ignore')
-
+                        
                     display_df = display_df.rename(columns={g_col_name: display_name})
                     
                     cols_order = [display_name]
@@ -1655,17 +1668,17 @@ with tab_customer:
                         
                     st.dataframe(add_index(display_df[cols_order]), use_container_width=True)
 
-            # 5. Category Comparison
+            # Category Comparison
             if meta_cr["category"] == "All Categories":
-                render_cr_sub_analysis("Cat", "5. Category Comparison", "Category")
+                render_cr_sub_analysis("Cat", "Category Comparison", "Category")
             
-            # 6. Brand Comparison
-            render_cr_sub_analysis("Brand", "6. Brand Comparison", "Brand")
+            # Brand Comparison
+            render_cr_sub_analysis("Brand", "Brand Comparison", "Brand")
 
-            # 7. L4L Table (SKU Level)
+            # L4L Table (SKU Level)
             def render_cr_l4l_table():
                 st.divider()
-                st.markdown("### 7. L4L Table (SKU Level)")
+                st.markdown("### L4L Table (SKU Level)")
                 
                 l4l_dfs = []
                 for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
@@ -1720,10 +1733,10 @@ with tab_customer:
 
             render_cr_l4l_table()
 
-            # 8. Auto Insights
+            # Auto Insights
             st.divider()
             is_cat_all = (meta_cr["category"] == "All Categories")
-            st.markdown("### 8. Auto Insights (Category Focus)" if is_cat_all else f"### 8. Auto Insights (SKU Focus - {meta_cr['category']})")
+            st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta_cr['category']})")
             
             ins_dfs = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
