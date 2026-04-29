@@ -1597,6 +1597,8 @@ with tab_customer:
         st.warning("Please upload data.")
     else:
         base_cols = hierarchy_cols
+        
+        # We manually build the filters for Customer Review so we can include Months at the top
         df_all_cr = pd.concat(dfs_cr, ignore_index=True)
         
         c1_cr, c2_cr, c3_cr, c4_cr = st.columns(4)
@@ -1614,7 +1616,7 @@ with tab_customer:
         categories_cr = ["All Categories"] + sorted(df_for_customers_cr[base_cols["Cat"]].dropna().unique().tolist())
         selected_category_cr = c3_cr.selectbox("📦 Category", categories_cr, key="cr_category")
 
-        # The month filter on the top
+        # Top month filter for Customer Review
         all_cr_months = sorted(list(set(df_all_cr[base_cols["Month"]].dropna().unique().tolist())), 
                                 key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
         default_cr_m = [m for m in hierarchy_months if m in all_cr_months]
@@ -1665,8 +1667,10 @@ with tab_customer:
                 
             st.divider()
             
-            default_divisor = len(hierarchy_months) if hierarchy_months else 12
-            st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on the highest priority file (Current Year > Previous Year > Older Year). You can adjust this divisor below.")
+            # Tabela miesięczna nie zważa na filtry miesięcy - ma pokazywać wszystkie wiersze, 
+            # ale delta i AVG wyliczane są na podstawie selected_months_cr
+            default_divisor = len(meta_cr["months"]) if meta_cr["months"] else 12
+            st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
 
             def render_monthly_table(mode="Net"):
@@ -1721,7 +1725,7 @@ with tab_customer:
                         if m in meta_cr["months"] or m in ["Total", "Avg Month"]:
                             row_yoy[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
                         else:
-                            row_yoy[SHORT_MONTHS[m]] = ""
+                            row_yoy[SHORT_MONTHS[m]] = "n/a"
                     display_rows.append(row_yoy)
 
                 df_disp = pd.DataFrame(display_rows)
