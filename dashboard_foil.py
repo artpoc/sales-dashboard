@@ -349,13 +349,11 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
                             key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
     if show_months:
-        default_m = default_months if default_months else all_det_months
-        default_m = [m for m in default_m if m in all_det_months]
-        
+        options_m = default_months if default_months else all_det_months
         key_months = f"{unique_prefix}_months"
-        selected_months = c4.multiselect("📅 Months", options=all_det_months, default=default_m, key=key_months)
+        selected_months = c4.multiselect("📅 Months", options=options_m, default=options_m, key=key_months)
     else:
-        selected_months = all_det_months
+        selected_months = default_months if default_months else all_det_months
 
     filtered_dfs = []
     for df in dfs:
@@ -1195,30 +1193,33 @@ def render_single_year_dashboard(
 st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
 st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
+# SESSION STATE CACHING FOR FILES (Fixes "Upload at least one excel file" bug on reruns)
+if 'data_older' not in st.session_state: st.session_state['data_older'] = (None, None, None)
+if 'data_prev' not in st.session_state: st.session_state['data_prev'] = (None, None, None)
+if 'data_curr' not in st.session_state: st.session_state['data_curr'] = (None, None, None)
+
 st.markdown("### Excel Upload (3 separate years)")
 c_up1, c_up2, c_up3 = st.columns(3)
 with c_up1:
-    file_two_years_ago = st.file_uploader("Older Year (2 years ago)", type=["xlsx"])
+    f1 = st.file_uploader("Older Year (2 years ago)", type=["xlsx"], key="up1")
+    if f1 is not None:
+        st.session_state['data_older'] = load_single_year_file(f1, "older")
 with c_up2:
-    file_prev_year = st.file_uploader("Previous Year", type=["xlsx"])
+    f2 = st.file_uploader("Previous Year", type=["xlsx"], key="up2")
+    if f2 is not None:
+        st.session_state['data_prev'] = load_single_year_file(f2, "prev")
 with c_up3:
-    file_current_year = st.file_uploader("Current Year (YTD)", type=["xlsx"])
+    f3 = st.file_uploader("Current Year (YTD)", type=["xlsx"], key="up3")
+    if f3 is not None:
+        st.session_state['data_curr'] = load_single_year_file(f3, "curr")
 
-if not file_prev_year and not file_current_year and not file_two_years_ago:
+df_old2, cols_old2, year_old2 = st.session_state['data_older']
+df_prev, cols_prev, year_prev = st.session_state['data_prev']
+df_curr, cols_curr, year_curr = st.session_state['data_curr']
+
+if df_prev is None and df_curr is None and df_old2 is None:
     st.info("Upload at least one Excel file.")
     st.stop()
-
-df_old2, cols_old2, year_old2 = load_single_year_file(
-    file_two_years_ago, "older"
-) if file_two_years_ago is not None else (None, None, None)
-
-df_prev, cols_prev, year_prev = load_single_year_file(
-    file_prev_year, "prev"
-) if file_prev_year is not None else (None, None, None)
-
-df_curr, cols_curr, year_curr = load_single_year_file(
-    file_current_year, "curr"
-) if file_current_year is not None else (None, None, None)
 
 st.divider()
 
@@ -1251,6 +1252,27 @@ if hierarchy_df is not None:
         list(hierarchy_df[hierarchy_cols["Month"]].dropna().unique()), 
         key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99
     )
+
+# STYLER FUNCTION FOR DELTA ROWS
+def style_monthly_table(df):
+    def color_cells(s):
+        if "∆" in str(s.get('Year', '')):
+            row_colors = []
+            for col in df.columns:
+                val = s[col]
+                if col == "Year":
+                    row_colors.append("")
+                else:
+                    if isinstance(val, str) and "🟢" in val:
+                        row_colors.append("background-color: rgba(144, 238, 144, 0.4); color: black;")
+                    elif isinstance(val, str) and "🔴" in val:
+                        row_colors.append("background-color: rgba(255, 182, 193, 0.4); color: black;")
+                    else:
+                        row_colors.append("")
+            return row_colors
+        else:
+            return [""] * len(s)
+    return df.style.apply(color_cells, axis=1)
 
 # ================= OVERVIEW: 3-YEAR L4L =================
 with tab_overview:
@@ -1575,10 +1597,8 @@ with tab_customer:
         st.warning("Please upload data.")
     else:
         base_cols = hierarchy_cols
-        
-        # In Customer Review, we generate the first three filters (Country, Customer, Category) 
-        # and we ADD the month filter right next to them
         df_all_cr = pd.concat(dfs_cr, ignore_index=True)
+        
         c1_cr, c2_cr, c3_cr, c4_cr = st.columns(4)
         
         countries_cr = ["All Countries"] + sorted(df_all_cr[base_cols["Country"]].replace("", pd.NA).dropna().unique().tolist())
@@ -1645,7 +1665,6 @@ with tab_customer:
                 
             st.divider()
             
-            # Tabela miesięczna nie zważa na filtry miesięcy - ma pokazywać wszystkie
             default_divisor = len(hierarchy_months) if hierarchy_months else 12
             st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on the highest priority file (Current Year > Previous Year > Older Year). You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
@@ -1699,11 +1718,15 @@ with tab_customer:
                     y1 = available_years[-2]
                     row_yoy = {"Year": f"∆ {y_newest} vs {y1}"}
                     for m in col_keys:
-                        row_yoy[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
+                        if m in meta_cr["months"] or m in ["Total", "Avg Month"]:
+                            row_yoy[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
+                        else:
+                            row_yoy[SHORT_MONTHS[m]] = ""
                     display_rows.append(row_yoy)
 
                 df_disp = pd.DataFrame(display_rows)
-                st.dataframe(df_disp, use_container_width=True, hide_index=True)
+                styled_df = style_monthly_table(df_disp)
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
             # Monthly Tables
             render_monthly_table("Net")
@@ -1785,7 +1808,7 @@ with tab_customer:
                         y1 = group_dfs_chrono[-2][1]
                         display_df[f"YoY {y_newest} vs {y1} (%)"] = display_df.get(f"YoY {y_newest} vs {y1}", pd.Series(dtype=str)).apply(yoy_label)
                         display_df = display_df.drop(columns=[f"YoY {y_newest} vs {y1}"], errors='ignore')
-
+                        
                     display_df = display_df.rename(columns={g_col_name: display_name})
                     
                     cols_order = [display_name]
