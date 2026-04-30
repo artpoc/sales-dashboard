@@ -238,7 +238,9 @@ def load_single_year_file(file, label: str):
     df[qty_col] = df[qty_col].apply(clean_number)
 
     # STANDARDIZING COLUMNS
-    df["Month_Clean"] = df[month_col].astype(str).fillna("").replace("nan", "")
+    df["Month_Clean"] = df[month_col].astype(str).str.strip().str.capitalize()
+    df["Month_Clean"] = df["Month_Clean"].replace("Nan", "")
+    
     df["Customer_Clean"] = df[customer_col].astype(str).fillna("").replace("nan", "")
     df["Country_Clean"] = df[country_col].astype(str).fillna("").replace("nan", "")
     df["Code_Clean"] = df[code_col].astype(str).fillna("").replace("nan", "").str.strip()
@@ -349,10 +351,7 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
                             key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
     if show_months:
-        # Pamiętajmy, by uważać na ewentualne przypadki, w których przekazana hierarchia
-        # zawiera więcej miesięcy niż jest dostępnych fizycznie w wybranych filtrach (choć rzadkie).
         options_m = MONTHS_ORDER
-        # "default_months" pochodzi bezpośrednio z nadrzędnego pliku konfiguracyjnego (Current > Prev > Older)
         default_m = default_months if default_months else all_det_months
         default_m = [m for m in default_m if m in options_m]
         
@@ -1199,7 +1198,18 @@ def render_single_year_dashboard(
 st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
 st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
-# SESSION STATE CACHING FOR FILES (Fixes "Upload at least one excel file" bug on reruns)
+# SESSION STATE CACHING FOR FILES (Fixes "Upload at least one excel file" bug)
+def update_cached_file(file_obj, state_key, label):
+    if file_obj is None:
+        st.session_state[state_key] = (None, None, None)
+        st.session_state[f"{state_key}_id"] = None
+    else:
+        # Check if file has changed
+        if st.session_state.get(f"{state_key}_id") != file_obj.file_id:
+            file_obj.seek(0)
+            st.session_state[state_key] = load_single_year_file(file_obj, label)
+            st.session_state[f"{state_key}_id"] = file_obj.file_id
+
 if 'data_older' not in st.session_state: st.session_state['data_older'] = (None, None, None)
 if 'data_prev' not in st.session_state: st.session_state['data_prev'] = (None, None, None)
 if 'data_curr' not in st.session_state: st.session_state['data_curr'] = (None, None, None)
@@ -1208,16 +1218,13 @@ st.markdown("### Excel Upload (3 separate years)")
 c_up1, c_up2, c_up3 = st.columns(3)
 with c_up1:
     f1 = st.file_uploader("Older Year (2 years ago)", type=["xlsx"], key="up1")
-    if f1 is not None:
-        st.session_state['data_older'] = load_single_year_file(f1, "older")
+    update_cached_file(f1, 'data_older', "older")
 with c_up2:
     f2 = st.file_uploader("Previous Year", type=["xlsx"], key="up2")
-    if f2 is not None:
-        st.session_state['data_prev'] = load_single_year_file(f2, "prev")
+    update_cached_file(f2, 'data_prev', "prev")
 with c_up3:
     f3 = st.file_uploader("Current Year (YTD)", type=["xlsx"], key="up3")
-    if f3 is not None:
-        st.session_state['data_curr'] = load_single_year_file(f3, "curr")
+    update_cached_file(f3, 'data_curr', "curr")
 
 df_old2, cols_old2, year_old2 = st.session_state['data_older']
 df_prev, cols_prev, year_prev = st.session_state['data_prev']
@@ -1412,7 +1419,7 @@ with tab_overview:
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
-                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_country["country"]]
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta["country"]]
                 if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
                 if not is_cat_all:
                     d_f = d_f[d_f[c["Cat"]] == meta["category"]]
@@ -1678,7 +1685,7 @@ with tab_customer:
             # Tabela miesięczna nie zważa na filtry miesięcy - ma pokazywać wszystkie wiersze, 
             # ale delta i AVG wyliczane są na podstawie selected_months_cr
             default_divisor = len(meta_cr["months"]) if meta_cr["months"] else 12
-            st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
+            st.info(f"ℹ️ Averages are calculated using {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
 
             def render_monthly_table(mode="Net"):
