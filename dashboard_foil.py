@@ -88,6 +88,54 @@ SHORT_MONTHS = {
     "Total": "∑", "Avg Month": "AVG / Month"
 }
 
+def normalize_month(x) -> str:
+    """Potężny i agresywny tłumacz wszelkich formatów miesięcy na czysty angielski standard"""
+    if pd.isna(x): return ""
+    if hasattr(x, 'strftime'): return x.strftime("%B")
+    
+    x_str = str(x).strip().lower()
+    if x_str.endswith(".0"): x_str = x_str[:-2]
+    
+    exact_map = {
+        "1": "January", "01": "January", "january": "January", "styczeń": "January", "styczen": "January",
+        "2": "February", "02": "February", "february": "February", "luty": "February",
+        "3": "March", "03": "March", "march": "March", "marzec": "March",
+        "4": "April", "04": "April", "april": "April", "kwiecień": "April", "kwiecien": "April",
+        "5": "May", "05": "May", "may": "May", "maj": "May",
+        "6": "June", "06": "June", "june": "June", "czerwiec": "June",
+        "7": "July", "07": "July", "july": "July", "lipiec": "July",
+        "8": "August", "08": "August", "august": "August", "sierpień": "August", "sierpien": "August",
+        "9": "September", "09": "September", "september": "September", "wrzesień": "September", "wrzesien": "September",
+        "10": "October", "october": "October", "październik": "October", "pazdziernik": "October",
+        "11": "November", "november": "November", "listopad": "November",
+        "12": "December", "december": "December", "grudzień": "December", "grudzien": "December"
+    }
+    
+    if x_str in exact_map: 
+        return exact_map[x_str]
+    
+    # Ratunkowe sprawdzanie ukrytych substringów
+    if "jan" in x_str or "sty" in x_str: return "January"
+    if "feb" in x_str or "lut" in x_str: return "February"
+    if "mar" in x_str: return "March"
+    if "apr" in x_str or "kwi" in x_str: return "April"
+    if "may" in x_str or "maj" in x_str: return "May"
+    if "jun" in x_str or "cze" in x_str: return "June"
+    if "jul" in x_str or "lip" in x_str: return "July"
+    if "aug" in x_str or "sie" in x_str: return "August"
+    if "sep" in x_str or "wrz" in x_str: return "September"
+    if "oct" in x_str or "paź" in x_str or "paz" in x_str: return "October"
+    if "nov" in x_str or "lis" in x_str: return "November"
+    if "dec" in x_str or "gru" in x_str: return "December"
+    
+    try:
+        dt = pd.to_datetime(x_str)
+        return dt.strftime("%B")
+    except:
+        pass
+    
+    return str(x).strip().capitalize()
+
 # ================= HELPERS & CORE UTILS =================
 def add_index(df: pd.DataFrame) -> pd.DataFrame:
     df = df.reset_index(drop=True)
@@ -240,9 +288,7 @@ def load_single_year_file(file, label: str):
     df[qty_col] = df[qty_col].apply(clean_number)
 
     # STANDARDIZING COLUMNS
-    df["Month_Clean"] = df[month_col].astype(str).str.strip().str.capitalize()
-    df["Month_Clean"] = df["Month_Clean"].replace("Nan", "")
-    
+    df["Month_Clean"] = df[month_col].apply(normalize_month)
     df["Customer_Clean"] = df[customer_col].astype(str).fillna("").replace("nan", "")
     df["Country_Clean"] = df[country_col].astype(str).fillna("").replace("nan", "")
     df["Code_Clean"] = df[code_col].astype(str).fillna("").replace("nan", "").str.strip()
@@ -353,9 +399,17 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
                             key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
     if show_months:
-        options_m = default_months if (default_months is not None and len(default_months) > 0) else all_det_months
+        options_m = MONTHS_ORDER
+        default_m = default_months if (default_months is not None and len(default_months) > 0) else all_det_months
+        default_m = [m for m in default_m if m in options_m]
+        
         key_months = f"{unique_prefix}_months"
-        selected_months = c4.multiselect("📅 Months", options=options_m, default=options_m, key=key_months)
+        
+        # Hard reset dla widżetu - rozwiązuje "upartość" Streamlita
+        if key_months not in st.session_state:
+            st.session_state[key_months] = default_m
+            
+        selected_months = c4.multiselect("📅 Months", options=options_m, key=key_months)
     else:
         selected_months = default_months if (default_months is not None and len(default_months) > 0) else all_det_months
 
@@ -1202,7 +1256,7 @@ def update_cached_file(file_obj, state_key, label):
     if file_obj is None:
         st.session_state[state_key] = (None, None, None)
         st.session_state[f"{state_key}_id"] = None
-        # Reset filters state to let defaults propagate
+        # Twardy reset kluczy filtrów z pamięci, aby wymusić wczytanie nowych opcji "default"
         for key in ["ov_months", "l4l_months", "cr_months"]:
             if key in st.session_state:
                 del st.session_state[key]
@@ -1211,7 +1265,6 @@ def update_cached_file(file_obj, state_key, label):
             file_obj.seek(0)
             st.session_state[state_key] = load_single_year_file(file_obj, label)
             st.session_state[f"{state_key}_id"] = file_obj.file_id
-            # Reset filters state to let defaults propagate
             for key in ["ov_months", "l4l_months", "cr_months"]:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -1271,6 +1324,8 @@ if hierarchy_df is not None:
     hm_matched = [m for m in hm_raw if m in MONTHS_ORDER]
     hierarchy_months = sorted(hm_matched, key=lambda x: MONTHS_ORDER.index(x))
 
+st.sidebar.info(f"ℹ️ Default months detected from top priority file: {', '.join(hierarchy_months) if hierarchy_months else 'None'}")
+
 # STYLER FUNCTION FOR DELTA ROWS
 def style_monthly_table(df):
     def color_cells(s):
@@ -1302,8 +1357,6 @@ with tab_overview:
     if len(loaded_dfs) < 1:
         st.warning("Please upload data.")
     else:
-        st.info(f"ℹ️ Months filter is automatically set based on the highest priority file (Current Year > Previous Year > Older Year).")
-        
         base_cols = hierarchy_cols
         filtered_dfs, meta = apply_shared_filters(loaded_dfs, base_cols, "ov", default_months=hierarchy_months)
 
@@ -1541,8 +1594,6 @@ with tab_l4l:
             df_right = year_to_df[right_year_option]
             cols_right = year_to_cols[right_year_option]
 
-            st.info(f"ℹ️ Months filter is automatically set based on the highest priority file (Current Year > Previous Year > Older Year).")
-
             st.markdown("### Filters for Detailed L4L")
             filtered_list, meta = apply_shared_filters(
                 [df_left, df_right],
@@ -1633,12 +1684,15 @@ with tab_customer:
         categories_cr = ["All Categories"] + sorted(df_for_customers_cr[base_cols["Cat"]].dropna().unique().tolist())
         selected_category_cr = c3_cr.selectbox("📦 Category", categories_cr, key="cr_category")
 
-        # The month filter on the top
+        # Zawsze pełna lista w opcjach wyboru, ale z precyzyjnie załadowaną hierarchią "default"
         options_cr_m = MONTHS_ORDER 
         default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
         if not default_cr_m: default_cr_m = options_cr_m
         
-        selected_months_cr = c4_cr.multiselect("📅 Months", options=options_cr_m, default=default_cr_m, key="cr_months")
+        if "cr_months" not in st.session_state:
+            st.session_state["cr_months"] = default_cr_m
+            
+        selected_months_cr = c4_cr.multiselect("📅 Months", options=options_cr_m, key="cr_months")
 
         meta_cr = {
             "country": selected_country_cr,
@@ -1684,6 +1738,7 @@ with tab_customer:
                 
             st.divider()
             
+            # Tabela miesięczna
             default_divisor = len(meta_cr["months"]) if meta_cr["months"] else 12
             st.info(f"ℹ️ Averages are calculated using {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
