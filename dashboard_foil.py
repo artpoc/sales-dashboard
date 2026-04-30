@@ -344,14 +344,22 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
     )
     key_category = f"{unique_prefix}_category"
     selected_category = c3.selectbox("📦 Category", categories, key=key_category)
+
+    all_det_months = sorted(list(set(df_all[cols["Month"]].dropna().unique().tolist())), 
+                            key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
     if show_months:
-        default_m = default_months if default_months else MONTHS_ORDER
+        # Pamiętajmy, by uważać na ewentualne przypadki, w których przekazana hierarchia
+        # zawiera więcej miesięcy niż jest dostępnych fizycznie w wybranych filtrach (choć rzadkie).
+        options_m = MONTHS_ORDER
+        # "default_months" pochodzi bezpośrednio z nadrzędnego pliku konfiguracyjnego (Current > Prev > Older)
+        default_m = default_months if default_months else all_det_months
+        default_m = [m for m in default_m if m in options_m]
+        
         key_months = f"{unique_prefix}_months"
-        # Opcje to zawsze pełne 12 miesięcy - pełna dowolność modyfikacji dla użytkownika
-        selected_months = c4.multiselect("📅 Months", options=MONTHS_ORDER, default=default_m, key=key_months)
+        selected_months = c4.multiselect("📅 Months", options=options_m, default=default_m, key=key_months)
     else:
-        selected_months = default_months if default_months else MONTHS_ORDER
+        selected_months = default_months if default_months else all_det_months
 
     filtered_dfs = []
     for df in dfs:
@@ -1404,7 +1412,7 @@ with tab_overview:
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
-                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta["country"]]
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_country["country"]]
                 if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
                 if not is_cat_all:
                     d_f = d_f[d_f[c["Cat"]] == meta["category"]]
@@ -1595,6 +1603,8 @@ with tab_customer:
         st.warning("Please upload data.")
     else:
         base_cols = hierarchy_cols
+        
+        # We manually build the filters for Customer Review so we can include Months at the top
         df_all_cr = pd.concat(dfs_cr, ignore_index=True)
         
         c1_cr, c2_cr, c3_cr, c4_cr = st.columns(4)
@@ -1613,11 +1623,13 @@ with tab_customer:
         selected_category_cr = c3_cr.selectbox("📦 Category", categories_cr, key="cr_category")
 
         # The month filter on the top
-        all_cr_months = sorted(list(set(df_all_cr[base_cols["Month"]].dropna().unique().tolist())), 
-                                key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
+        # All available months for options
+        all_cr_months = MONTHS_ORDER 
+        # Default selected months based on hierarchy
         default_cr_m = [m for m in hierarchy_months if m in all_cr_months]
         if not default_cr_m: default_cr_m = all_cr_months
-        selected_months_cr = c4_cr.multiselect("📅 Months", options=MONTHS_ORDER, default=default_cr_m, key="cr_months")
+        
+        selected_months_cr = c4_cr.multiselect("📅 Months", options=all_cr_months, default=default_cr_m, key="cr_months")
 
         meta_cr = {
             "country": selected_country_cr,
@@ -1663,8 +1675,10 @@ with tab_customer:
                 
             st.divider()
             
+            # Tabela miesięczna nie zważa na filtry miesięcy - ma pokazywać wszystkie wiersze, 
+            # ale delta i AVG wyliczane są na podstawie selected_months_cr
             default_divisor = len(meta_cr["months"]) if meta_cr["months"] else 12
-            st.info(f"ℹ️ Averages are calculated using {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
+            st.info(f"ℹ️ Averages are calculated using the first {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
 
             def render_monthly_table(mode="Net"):
@@ -1806,6 +1820,7 @@ with tab_customer:
                     if len(group_dfs_chrono) >= 2:
                         y1 = group_dfs_chrono[-2][1]
                         display_df[f"YoY {y_newest} vs {y1} (%)"] = display_df.get(f"YoY {y_newest} vs {y1}", pd.Series(dtype=str)).apply(yoy_label)
+                        display_df = display_df.drop(columns=[f"YoY {y_newest} vs {y1}"], errors='ignore')
                         
                     display_df = display_df.rename(columns={g_col_name: display_name})
                     
