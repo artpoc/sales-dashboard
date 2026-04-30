@@ -84,8 +84,7 @@ MONTHS_ORDER = [
 
 SHORT_MONTHS = {
     "January": "JAN", "February": "FEB", "March": "MAR", "April": "APR", "May": "MAY", "June": "JUN",
-    "July": "JUL", "August": "AUG", "September": "SEP", "October": "OCT", "November": "NOV", "December": "DEC",
-    "Total": "∑", "Avg Month": "AVG / Month"
+    "July": "JUL", "August": "AUG", "September": "SEP", "October": "OCT", "November": "NOV", "December": "DEC"
 }
 
 def normalize_month(x) -> str:
@@ -395,12 +394,9 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
     key_category = f"{unique_prefix}_category"
     selected_category = c3.selectbox("📦 Category", categories, key=key_category)
 
-    all_det_months = sorted(list(set(df_all[cols["Month"]].dropna().unique().tolist())), 
-                            key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
-    
     if show_months:
         options_m = MONTHS_ORDER
-        default_m = default_months if (default_months is not None and len(default_months) > 0) else all_det_months
+        default_m = default_months if (default_months is not None and len(default_months) > 0) else MONTHS_ORDER
         default_m = [m for m in default_m if m in options_m]
         
         key_months = f"{unique_prefix}_months"
@@ -411,7 +407,7 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
             
         selected_months = c4.multiselect("📅 Months", options=options_m, key=key_months)
     else:
-        selected_months = default_months if (default_months is not None and len(default_months) > 0) else all_det_months
+        selected_months = default_months if (default_months is not None and len(default_months) > 0) else MONTHS_ORDER
 
     filtered_dfs = []
     for df in dfs:
@@ -1251,12 +1247,11 @@ def render_single_year_dashboard(
 st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
 st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
-# SESSION STATE CACHING FOR FILES (Fixes "Upload at least one excel file" bug)
+# SESSION STATE CACHING FOR FILES
 def update_cached_file(file_obj, state_key, label):
     if file_obj is None:
         st.session_state[state_key] = (None, None, None)
         st.session_state[f"{state_key}_id"] = None
-        # Twardy reset kluczy filtrów z pamięci, aby wymusić wczytanie nowych opcji "default"
         for key in ["ov_months", "l4l_months", "cr_months"]:
             if key in st.session_state:
                 del st.session_state[key]
@@ -1454,7 +1449,7 @@ with tab_overview:
             if df is None or orig_df is None: return None
             d = orig_df.copy()
             if meta["country"] != "All Countries": d = d[d[c["Country"]] == meta["country"]]
-            if meta["customer"] != "All Customers": d = d[d[c["Customer"]] == meta["customer"]]
+            if meta["customer"] != "All Customers": d = d[d[c["Customer"]] == meta_cr["customer"]]
             if meta["months"]: d = d[d[c["Month"]].isin(meta["months"])]
             return d
 
@@ -1684,7 +1679,6 @@ with tab_customer:
         categories_cr = ["All Categories"] + sorted(df_for_customers_cr[base_cols["Cat"]].dropna().unique().tolist())
         selected_category_cr = c3_cr.selectbox("📦 Category", categories_cr, key="cr_category")
 
-        # Zawsze pełna lista w opcjach wyboru, ale z precyzyjnie załadowaną hierarchią "default"
         options_cr_m = MONTHS_ORDER 
         default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
         if not default_cr_m: default_cr_m = options_cr_m
@@ -1740,8 +1734,8 @@ with tab_customer:
             
             # Tabela miesięczna
             default_divisor = len(meta_cr["months"]) if meta_cr["months"] else 12
-            st.info(f"ℹ️ Averages are calculated using {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
-            avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
+            st.info(f"ℹ️ Averages and Sums are calculated using {default_divisor} months based on your selected month filters above. You can adjust this divisor manually below.")
+            avg_divisor = st.slider("Select number of months for ∑ and AVG calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
 
             def render_monthly_table(mode="Net"):
                 if mode == "Net":
@@ -1750,6 +1744,8 @@ with tab_customer:
                     st.markdown("### Quantity Monthly Comparison")
                 
                 col_key = "Net" if mode == "Net" else "Qty"
+                sum_col_key = f"∑ (for {avg_divisor} months)"
+                avg_col_key = "Avg Month"
 
                 year_data = {}
                 for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
@@ -1760,31 +1756,30 @@ with tab_customer:
                         if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
 
                         m_vals = {}
-                        tot = Decimal('0')
                         for m in MONTHS_ORDER:
                             val = sum_decimal(d_f[d_f[c["Month"]] == m][c[col_key]])
                             m_vals[m] = val
-                            tot += val
-                        m_vals["Total"] = tot
                         
                         selected_months_for_avg = MONTHS_ORDER[:avg_divisor]
                         partial_sum = Decimal('0')
                         for m in selected_months_for_avg:
                             partial_sum += m_vals[m]
                             
-                        m_vals["Avg Month"] = partial_sum / Decimal(str(avg_divisor))
+                        m_vals[sum_col_key] = partial_sum
+                        m_vals[avg_col_key] = partial_sum / Decimal(str(avg_divisor))
                         year_data[y] = m_vals
 
                 if not year_data: return
 
                 available_years = sorted(list(year_data.keys()))
                 display_rows = []
-                col_keys = MONTHS_ORDER + ["Total", "Avg Month"]
+                col_keys = MONTHS_ORDER + [sum_col_key, avg_col_key]
 
                 for y in available_years:
                     row = {"Year": str(y)}
                     for m in col_keys:
-                        row[SHORT_MONTHS[m]] = to_display_num(year_data[y][m])
+                        disp_name = SHORT_MONTHS.get(m, m)
+                        row[disp_name] = to_display_num(year_data[y][m])
                     display_rows.append(row)
 
                 if len(available_years) >= 2:
@@ -1792,10 +1787,11 @@ with tab_customer:
                     y1 = available_years[-2]
                     row_yoy = {"Year": f"∆ {y_newest} vs {y1}"}
                     for m in col_keys:
-                        if m in meta_cr["months"] or m in ["Total", "Avg Month"]:
-                            row_yoy[SHORT_MONTHS[m]] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
+                        disp_name = SHORT_MONTHS.get(m, m)
+                        if m in meta_cr["months"] or m in [sum_col_key, avg_col_key]:
+                            row_yoy[disp_name] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
                         else:
-                            row_yoy[SHORT_MONTHS[m]] = "n/a"
+                            row_yoy[disp_name] = "n/a"
                     display_rows.append(row_yoy)
 
                 df_disp = pd.DataFrame(display_rows)
