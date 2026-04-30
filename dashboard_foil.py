@@ -84,7 +84,8 @@ MONTHS_ORDER = [
 
 SHORT_MONTHS = {
     "January": "JAN", "February": "FEB", "March": "MAR", "April": "APR", "May": "MAY", "June": "JUN",
-    "July": "JUL", "August": "AUG", "September": "SEP", "October": "OCT", "November": "NOV", "December": "DEC"
+    "July": "JUL", "August": "AUG", "September": "SEP", "October": "OCT", "November": "NOV", "December": "DEC",
+    "Total": "∑", "Avg Month": "AVG / Month"
 }
 
 def normalize_month(x) -> str:
@@ -394,6 +395,9 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
     key_category = f"{unique_prefix}_category"
     selected_category = c3.selectbox("📦 Category", categories, key=key_category)
 
+    all_det_months = sorted(list(set(df_all[cols["Month"]].dropna().unique().tolist())), 
+                            key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
+    
     if show_months:
         options_m = MONTHS_ORDER
         default_m = default_months if (default_months is not None and len(default_months) > 0) else MONTHS_ORDER
@@ -401,7 +405,6 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
         
         key_months = f"{unique_prefix}_months"
         
-        # Hard reset dla widżetu - rozwiązuje "upartość" Streamlita
         if key_months not in st.session_state:
             st.session_state[key_months] = default_m
             
@@ -1449,7 +1452,7 @@ with tab_overview:
             if df is None or orig_df is None: return None
             d = orig_df.copy()
             if meta["country"] != "All Countries": d = d[d[c["Country"]] == meta["country"]]
-            if meta["customer"] != "All Customers": d = d[d[c["Customer"]] == meta_cr["customer"]]
+            if meta["customer"] != "All Customers": d = d[d[c["Customer"]] == meta["customer"]]
             if meta["months"]: d = d[d[c["Month"]].isin(meta["months"])]
             return d
 
@@ -1662,6 +1665,7 @@ with tab_customer:
     else:
         base_cols = hierarchy_cols
         
+        # We manually build the filters for Customer Review so we can include Months at the top
         df_all_cr = pd.concat(dfs_cr, ignore_index=True)
         
         c1_cr, c2_cr, c3_cr, c4_cr = st.columns(4)
@@ -1679,6 +1683,7 @@ with tab_customer:
         categories_cr = ["All Categories"] + sorted(df_for_customers_cr[base_cols["Cat"]].dropna().unique().tolist())
         selected_category_cr = c3_cr.selectbox("📦 Category", categories_cr, key="cr_category")
 
+        # Top month filter for Customer Review
         options_cr_m = MONTHS_ORDER 
         default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
         if not default_cr_m: default_cr_m = options_cr_m
