@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, getcontext
+import datetime
 
 # ===== PERFECT ENGINE INTEGRATION =====
 getcontext().prec = 28
@@ -88,26 +89,44 @@ SHORT_MONTHS = {
     "Total": "∑", "Avg Month": "AVG / Month"
 }
 
-# Tłumacz do ujednolicenia miesięcy
 MONTH_MAP = {
-    "styczeń": "January", "styczen": "January", "sty": "January", "jan": "January", "1": "January", "01": "January", "1.0": "January", "january": "January",
-    "luty": "February", "lut": "February", "feb": "February", "2": "February", "02": "February", "2.0": "February", "february": "February",
-    "marzec": "March", "mar": "March", "3": "March", "03": "March", "3.0": "March", "march": "March",
-    "kwiecień": "April", "kwiecien": "April", "kwi": "April", "apr": "April", "4": "April", "04": "April", "4.0": "April", "april": "April",
-    "maj": "May", "may": "May", "5": "May", "05": "May", "5.0": "May",
-    "czerwiec": "June", "cze": "June", "jun": "June", "6": "June", "06": "June", "6.0": "June", "june": "June",
-    "lipiec": "July", "lip": "July", "jul": "July", "7": "July", "07": "July", "7.0": "July", "july": "July",
-    "sierpień": "August", "sierpien": "August", "sie": "August", "aug": "August", "8": "August", "08": "August", "8.0": "August", "august": "August",
-    "wrzesień": "September", "wrzesien": "September", "wrz": "September", "sep": "September", "9": "September", "09": "September", "9.0": "September", "september": "September",
-    "październik": "October", "pazdziernik": "October", "paz": "October", "oct": "October", "10": "October", "10.0": "October", "october": "October",
-    "listopad": "November", "lis": "November", "nov": "November", "11": "November", "11.0": "November", "november": "November",
-    "grudzień": "December", "grudzien": "December", "gru": "December", "dec": "December", "12": "December", "12.0": "December", "december": "December"
+    "styczeń": "January", "styczen": "January", "sty": "January", "jan": "January", "1": "January", "01": "January", "january": "January",
+    "luty": "February", "lut": "February", "feb": "February", "2": "February", "02": "February", "february": "February",
+    "marzec": "March", "mar": "March", "3": "March", "03": "March", "march": "March",
+    "kwiecień": "April", "kwiecien": "April", "kwi": "April", "apr": "April", "4": "April", "04": "April", "april": "April",
+    "maj": "May", "may": "May", "5": "May", "05": "May",
+    "czerwiec": "June", "cze": "June", "jun": "June", "6": "June", "06": "June", "june": "June",
+    "lipiec": "July", "lip": "July", "jul": "July", "7": "July", "07": "July", "july": "July",
+    "sierpień": "August", "sierpien": "August", "sie": "August", "aug": "August", "8": "August", "08": "August", "august": "August",
+    "wrzesień": "September", "wrzesien": "September", "wrz": "September", "sep": "September", "9": "September", "09": "September", "september": "September",
+    "październik": "October", "pazdziernik": "October", "paz": "October", "oct": "October", "10": "October", "october": "October",
+    "listopad": "November", "lis": "November", "nov": "November", "11": "November", "november": "November",
+    "grudzień": "December", "grudzien": "December", "gru": "December", "dec": "December", "12": "December", "december": "December"
 }
 
 def normalize_month(x) -> str:
+    """Tłumaczy przeróżne formaty miesięcy w Excelu do spójnego standardu."""
+    if pd.isna(x):
+        return ""
+    # Jeżeli Excel zinterpretował komórkę bezpośrednio jako obiekt daty
+    if hasattr(x, 'strftime'):
+        return x.strftime("%B")
+    
     x_str = str(x).strip().lower()
+    # Jeżeli wczytało liczby jako float (np. '1.0' zamiast '1')
+    if x_str.endswith(".0"):
+        x_str = x_str[:-2]
+        
     if x_str in MONTH_MAP:
         return MONTH_MAP[x_str]
+        
+    # Awaryjne sprawdzanie dla stringów np. "2026-01-01"
+    try:
+        dt = pd.to_datetime(x_str)
+        return dt.strftime("%B")
+    except:
+        pass
+        
     return str(x).strip().capitalize()
 
 # ================= HELPERS & CORE UTILS =================
@@ -198,49 +217,51 @@ def load_single_year_file(file, label: str):
 
     month_col = None
     for c in df.columns:
-        if str(c).strip().lower() == "month":
+        cl = str(c).strip().lower()
+        if "month" in cl or "mies" in cl or "m-c" in cl:
             month_col = c
             break
     if month_col is None: month_col = df.columns[0]
 
     customer_col = None
     for c in df.columns:
-        if "customer" in str(c).lower():
+        cl = str(c).strip().lower()
+        if "customer" in cl or "klient" in cl or "odbiorca" in cl or "nabywca" in cl:
             customer_col = c
             break
     if customer_col is None: customer_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
 
     country_col = None
     for c in df.columns:
-        if "country" in str(c).lower():
+        if "country" in str(c).lower() or "kraj" in str(c).lower():
             country_col = c
             break
     if country_col is None: country_col = df.columns[2] if len(df.columns) > 2 else df.columns[0]
 
     code_col = None
     for c in df.columns:
-        if "art" in str(c).lower() and "nr" in str(c).lower():
+        if "art" in str(c).lower() and "nr" in str(c).lower() or "code" in str(c).lower():
             code_col = c
             break
     if code_col is None: code_col = df.columns[4] if len(df.columns) > 4 else df.columns[0]
 
     desc_col = None
     for c in df.columns:
-        if "description" in str(c).lower():
+        if "description" in str(c).lower() or "opis" in str(c).lower():
             desc_col = c
             break
     if desc_col is None: desc_col = df.columns[5] if len(df.columns) > 5 else df.columns[0]
 
     brand_col = None
     for c in df.columns:
-        if "brand" in str(c).lower():
+        if "brand" in str(c).lower() or "marka" in str(c).lower() or "licencja" in str(c).lower():
             brand_col = c
             break
     if brand_col is None: brand_col = df.columns[6] if len(df.columns) > 6 else df.columns[0]
 
     cat_col = None
     for c in df.columns:
-        if "category" in str(c).lower():
+        if "category" in str(c).lower() or "kategoria" in str(c).lower():
             cat_col = c
             break
     if cat_col is None: cat_col = df.columns[7] if len(df.columns) > 7 else df.columns[0]
@@ -249,9 +270,9 @@ def load_single_year_file(file, label: str):
     qty_col = None
     for c in df.columns:
         cl = str(c).lower()
-        if net_col is None and ("net" in cl or "value" in cl or "sales" in cl):
+        if net_col is None and ("net" in cl or "value" in cl or "sales" in cl or "warto" in cl):
             net_col = c
-        elif qty_col is None and ("qty" in cl or "quantity" in cl or "pcs" in cl):
+        elif qty_col is None and ("qty" in cl or "quantity" in cl or "pcs" in cl or "ilo" in cl):
             qty_col = c
     if net_col is None: net_col = df.columns[-2] if len(df.columns) >= 2 else df.columns[-1]
     if qty_col is None: qty_col = df.columns[-1]
@@ -368,18 +389,18 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
     key_category = f"{unique_prefix}_category"
     selected_category = c3.selectbox("📦 Category", categories, key=key_category)
 
+    all_det_months = sorted(list(set(df_all[cols["Month"]].dropna().unique().tolist())), 
+                            key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
+    
     if show_months:
         options_m = MONTHS_ORDER
-        # Używamy tylko zwalidowanych miesięcy
-        if default_months is not None and len(default_months) > 0:
-            default_m = [m for m in default_months if m in options_m]
-        else:
-            default_m = options_m
-            
+        default_m = default_months if default_months else all_det_months
+        default_m = [m for m in default_m if m in options_m]
+        
         key_months = f"{unique_prefix}_months"
         selected_months = c4.multiselect("📅 Months", options=options_m, default=default_m, key=key_months)
     else:
-        selected_months = default_months if default_months else MONTHS_ORDER
+        selected_months = default_months if default_months else all_det_months
 
     filtered_dfs = []
     for df in dfs:
@@ -1639,7 +1660,6 @@ with tab_customer:
     else:
         base_cols = hierarchy_cols
         
-        # We manually build the filters for Customer Review so we can include Months at the top
         df_all_cr = pd.concat(dfs_cr, ignore_index=True)
         
         c1_cr, c2_cr, c3_cr, c4_cr = st.columns(4)
@@ -1657,7 +1677,7 @@ with tab_customer:
         categories_cr = ["All Categories"] + sorted(df_for_customers_cr[base_cols["Cat"]].dropna().unique().tolist())
         selected_category_cr = c3_cr.selectbox("📦 Category", categories_cr, key="cr_category")
 
-        # The month filter on the top
+        # Top month filter for Customer Review
         all_cr_months_options = MONTHS_ORDER 
         default_cr_m = [m for m in hierarchy_months if m in all_cr_months_options]
         if not default_cr_m: default_cr_m = all_cr_months_options
