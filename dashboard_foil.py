@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, getcontext
-import datetime
 
 # ===== PERFECT ENGINE INTEGRATION =====
 getcontext().prec = 28
@@ -88,46 +87,6 @@ SHORT_MONTHS = {
     "July": "JUL", "August": "AUG", "September": "SEP", "October": "OCT", "November": "NOV", "December": "DEC",
     "Total": "∑", "Avg Month": "AVG / Month"
 }
-
-MONTH_MAP = {
-    "styczeń": "January", "styczen": "January", "sty": "January", "jan": "January", "1": "January", "01": "January", "january": "January",
-    "luty": "February", "lut": "February", "feb": "February", "2": "February", "02": "February", "february": "February",
-    "marzec": "March", "mar": "March", "3": "March", "03": "March", "march": "March",
-    "kwiecień": "April", "kwiecien": "April", "kwi": "April", "apr": "April", "4": "April", "04": "April", "april": "April",
-    "maj": "May", "may": "May", "5": "May", "05": "May",
-    "czerwiec": "June", "cze": "June", "jun": "June", "6": "June", "06": "June", "june": "June",
-    "lipiec": "July", "lip": "July", "jul": "July", "7": "July", "07": "July", "july": "July",
-    "sierpień": "August", "sierpien": "August", "sie": "August", "aug": "August", "8": "August", "08": "August", "august": "August",
-    "wrzesień": "September", "wrzesien": "September", "wrz": "September", "sep": "September", "9": "September", "09": "September", "september": "September",
-    "październik": "October", "pazdziernik": "October", "paz": "October", "oct": "October", "10": "October", "october": "October",
-    "listopad": "November", "lis": "November", "nov": "November", "11": "November", "november": "November",
-    "grudzień": "December", "grudzien": "December", "gru": "December", "dec": "December", "12": "December", "december": "December"
-}
-
-def normalize_month(x) -> str:
-    """Tłumaczy przeróżne formaty miesięcy w Excelu do spójnego standardu."""
-    if pd.isna(x):
-        return ""
-    # Jeżeli Excel zinterpretował komórkę bezpośrednio jako obiekt daty
-    if hasattr(x, 'strftime'):
-        return x.strftime("%B")
-    
-    x_str = str(x).strip().lower()
-    # Jeżeli wczytało liczby jako float (np. '1.0' zamiast '1')
-    if x_str.endswith(".0"):
-        x_str = x_str[:-2]
-        
-    if x_str in MONTH_MAP:
-        return MONTH_MAP[x_str]
-        
-    # Awaryjne sprawdzanie dla stringów np. "2026-01-01"
-    try:
-        dt = pd.to_datetime(x_str)
-        return dt.strftime("%B")
-    except:
-        pass
-        
-    return str(x).strip().capitalize()
 
 # ================= HELPERS & CORE UTILS =================
 def add_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -280,8 +239,9 @@ def load_single_year_file(file, label: str):
     df[net_col] = df[net_col].apply(clean_number)
     df[qty_col] = df[qty_col].apply(clean_number)
 
-    # STANDARDIZING COLUMNS (with inteligent month mapping)
-    df["Month_Clean"] = df[month_col].apply(normalize_month)
+    # STANDARDIZING COLUMNS
+    df["Month_Clean"] = df[month_col].astype(str).str.strip().str.capitalize()
+    df["Month_Clean"] = df["Month_Clean"].replace("Nan", "")
     
     df["Customer_Clean"] = df[customer_col].astype(str).fillna("").replace("nan", "")
     df["Country_Clean"] = df[country_col].astype(str).fillna("").replace("nan", "")
@@ -393,14 +353,11 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
                             key=lambda x: MONTHS_ORDER.index(x) if x in MONTHS_ORDER else 99)
     
     if show_months:
-        options_m = MONTHS_ORDER
-        default_m = default_months if default_months else all_det_months
-        default_m = [m for m in default_m if m in options_m]
-        
+        options_m = default_months if (default_months is not None and len(default_months) > 0) else all_det_months
         key_months = f"{unique_prefix}_months"
-        selected_months = c4.multiselect("📅 Months", options=options_m, default=default_m, key=key_months)
+        selected_months = c4.multiselect("📅 Months", options=options_m, default=options_m, key=key_months)
     else:
-        selected_months = default_months if default_months else all_det_months
+        selected_months = default_months if (default_months is not None and len(default_months) > 0) else all_det_months
 
     filtered_dfs = []
     for df in dfs:
@@ -1310,7 +1267,6 @@ elif df_old2 is not None:
 
 hierarchy_months = []
 if hierarchy_df is not None:
-    # Ensure months from Excel are matched against MONTHS_ORDER
     hm_raw = hierarchy_df[hierarchy_cols["Month"]].dropna().unique().tolist()
     hm_matched = [m for m in hm_raw if m in MONTHS_ORDER]
     hierarchy_months = sorted(hm_matched, key=lambda x: MONTHS_ORDER.index(x))
@@ -1346,7 +1302,7 @@ with tab_overview:
     if len(loaded_dfs) < 1:
         st.warning("Please upload data.")
     else:
-        st.info(f"ℹ️ Default months selected based on the highest priority file (Current Year > Previous Year > Older Year). You can modify them in the filter below.")
+        st.info(f"ℹ️ Months filter is automatically set based on the highest priority file (Current Year > Previous Year > Older Year).")
         
         base_cols = hierarchy_cols
         filtered_dfs, meta = apply_shared_filters(loaded_dfs, base_cols, "ov", default_months=hierarchy_months)
@@ -1585,7 +1541,7 @@ with tab_l4l:
             df_right = year_to_df[right_year_option]
             cols_right = year_to_cols[right_year_option]
 
-            st.info(f"ℹ️ Default months selected based on the highest priority file (Current Year > Previous Year > Older Year). You can modify them in the filter below.")
+            st.info(f"ℹ️ Months filter is automatically set based on the highest priority file (Current Year > Previous Year > Older Year).")
 
             st.markdown("### Filters for Detailed L4L")
             filtered_list, meta = apply_shared_filters(
@@ -1677,12 +1633,12 @@ with tab_customer:
         categories_cr = ["All Categories"] + sorted(df_for_customers_cr[base_cols["Cat"]].dropna().unique().tolist())
         selected_category_cr = c3_cr.selectbox("📦 Category", categories_cr, key="cr_category")
 
-        # Top month filter for Customer Review
-        all_cr_months_options = MONTHS_ORDER 
-        default_cr_m = [m for m in hierarchy_months if m in all_cr_months_options]
-        if not default_cr_m: default_cr_m = all_cr_months_options
+        # The month filter on the top
+        options_cr_m = MONTHS_ORDER 
+        default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
+        if not default_cr_m: default_cr_m = options_cr_m
         
-        selected_months_cr = c4_cr.multiselect("📅 Months", options=all_cr_months_options, default=default_cr_m, key="cr_months")
+        selected_months_cr = c4_cr.multiselect("📅 Months", options=options_cr_m, default=default_cr_m, key="cr_months")
 
         meta_cr = {
             "country": selected_country_cr,
@@ -1728,7 +1684,6 @@ with tab_customer:
                 
             st.divider()
             
-            # Tabela miesięczna
             default_divisor = len(meta_cr["months"]) if meta_cr["months"] else 12
             st.info(f"ℹ️ Averages are calculated using {default_divisor} months based on your selected month filters above. You can adjust this divisor below.")
             avg_divisor = st.slider("Select divisor for AVG / Month calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1)
