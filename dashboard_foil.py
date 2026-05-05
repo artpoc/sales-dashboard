@@ -406,11 +406,13 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
         options_m = MONTHS_ORDER
         # Filtrujemy na "sztywno", by podświetlić tylko istniejące w pliku miesiące
         default_m = [m for m in (default_months or []) if m in options_m]
-        
+        if not default_m:
+            default_m = options_m
+            
         key_months = f"{unique_prefix}_months"
         
-        # Generowanie nagłówka z widoczną ilością (tylko na ekranie)
-        label_m = f"📅 Months ({len(default_m)} active)" if default_m else "📅 Months"
+        # Generowanie nagłówka z widoczną ilością aktywnych
+        label_m = f"📅 Months ({len(default_m)} active)"
         
         selected_months = c4.multiselect(label_m, options=options_m, default=default_m, key=key_months)
     else:
@@ -1358,6 +1360,16 @@ if hierarchy_df is not None:
 
 st.sidebar.info(f"ℹ️ Default months detected: {', '.join(hierarchy_months) if hierarchy_months else 'None'}")
 
+# ================= MAGIC FIX FOR SESSION STATE STICKINESS =================
+current_hm_str = ",".join(hierarchy_months)
+if st.session_state.get('last_hm_str') != current_hm_str:
+    keys_to_reset = ["ov_months", "l4l_months", "cr_months", "co_months", "br_months", "ch_months"]
+    for k in keys_to_reset:
+        if k in st.session_state:
+            del st.session_state[k]
+    st.session_state['last_hm_str'] = current_hm_str
+# ========================================================================
+
 def style_monthly_table(df):
     def color_cells(s):
         if "∆" in str(s.get('Year', '')):
@@ -1654,9 +1666,10 @@ with tab_customer:
 
         options_cr_m = MONTHS_ORDER 
         default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
+        if not default_cr_m:
+            default_cr_m = options_cr_m
         
-        # Nowy nagłówek tylko dla wyselekcjonowanej ilości aktywnych miesięcy
-        label_cr_m = f"📅 Months ({len(default_cr_m)} active)" if default_cr_m else "📅 Months"
+        label_cr_m = f"📅 Months ({len(default_cr_m)} active)"
         selected_months_cr = c4.multiselect(label_cr_m, options=options_cr_m, default=default_cr_m, key="cr_months")
 
         meta_cr = {
@@ -2009,8 +2022,10 @@ with tab_country:
 
         options_co_m = MONTHS_ORDER 
         default_co_m = [m for m in hierarchy_months if m in options_co_m]
-        
-        label_co_m = f"📅 Months ({len(default_co_m)} active)" if default_co_m else "📅 Months"
+        if not default_co_m:
+            default_co_m = options_co_m
+            
+        label_co_m = f"📅 Months ({len(default_co_m)} active)"
         selected_months_co = cc3.multiselect(label_co_m, options=options_co_m, default=default_co_m, key="co_months")
 
         co_valid_dfs = []
@@ -2184,8 +2199,10 @@ with tab_brand:
 
         options_br_m = MONTHS_ORDER 
         default_br_m = [m for m in hierarchy_months if m in options_br_m]
+        if not default_br_m:
+            default_br_m = options_br_m
         
-        label_br_m = f"📅 Months ({len(default_br_m)} active)" if default_br_m else "📅 Months"
+        label_br_m = f"📅 Months ({len(default_br_m)} active)"
         selected_months_br = st.multiselect(label_br_m, options=options_br_m, default=default_br_m, key="br_months")
 
         if selected_brand_specific == "All Brands":
@@ -2372,8 +2389,10 @@ with tab_churn:
 
         options_ch_m = MONTHS_ORDER 
         default_ch_m = [m for m in hierarchy_months if m in options_ch_m]
-        
-        label_ch_m = f"📅 Months ({len(default_ch_m)} active)" if default_ch_m else "📅 Months"
+        if not default_ch_m:
+            default_ch_m = options_ch_m
+            
+        label_ch_m = f"📅 Months ({len(default_ch_m)} active)"
         selected_months_ch = ch4.multiselect(label_ch_m, options=options_ch_m, default=default_ch_m, key="ch_months")
 
         ch_valid_dfs = []
