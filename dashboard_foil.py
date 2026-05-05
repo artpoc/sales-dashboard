@@ -924,10 +924,9 @@ def render_two_year_dashboard(
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(add_index(d_disp[disp_prefix + [f"Net {year_old}", f"Net {year_new}", f"Change {year_new} vs {year_old}", "YoY (%)"]]))
 
-
     st.divider()
 
-    # CUSTOMER IMPACT (RESTORED SECTION)
+    # CUSTOMER IMPACT
     st.markdown("### Customer Impact (Growth vs Decline)")
 
     all_categories = sorted(
@@ -1245,6 +1244,422 @@ def render_single_year_dashboard(
         disp[f"Net {year_name}"] = disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
         st.dataframe(add_index(disp[[cat_col, f"Net {year_name}"]]))
 
+
+# ================= MAIN APP =================
+st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
+st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
+
+# SESSION STATE CACHING FOR FILES
+def update_cached_file(file_obj, state_key, label):
+    if file_obj is None:
+        st.session_state[state_key] = (None, None, None)
+        st.session_state[f"{state_key}_id"] = None
+        for key in ["ov_months", "l4l_months", "cr_months", "co_months", "br_months", "ch_months"]:
+            if key in st.session_state:
+                del st.session_state[key]
+    else:
+        if st.session_state.get(f"{state_key}_id") != file_obj.file_id:
+            file_obj.seek(0)
+            st.session_state[state_key] = load_single_year_file(file_obj, label)
+            st.session_state[f"{state_key}_id"] = file_obj.file_id
+            for key in ["ov_months", "l4l_months", "cr_months", "co_months", "br_months", "ch_months"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+
+if 'data_older' not in st.session_state: st.session_state['data_older'] = (None, None, None)
+if 'data_prev' not in st.session_state: st.session_state['data_prev'] = (None, None, None)
+if 'data_curr' not in st.session_state: st.session_state['data_curr'] = (None, None, None)
+
+st.markdown("### Excel Upload (3 separate years)")
+c_up1, c_up2, c_up3 = st.columns(3)
+with c_up1:
+    f1 = st.file_uploader("Older Year (2 years ago)", type=["xlsx"], key="up1")
+    update_cached_file(f1, 'data_older', "older")
+with c_up2:
+    f2 = st.file_uploader("Previous Year", type=["xlsx"], key="up2")
+    update_cached_file(f2, 'data_prev', "prev")
+with c_up3:
+    f3 = st.file_uploader("Current Year (YTD)", type=["xlsx"], key="up3")
+    update_cached_file(f3, 'data_curr', "curr")
+
+df_old2, cols_old2, year_old2 = st.session_state['data_older']
+df_prev, cols_prev, year_prev = st.session_state['data_prev']
+df_curr, cols_curr, year_curr = st.session_state['data_curr']
+
+if df_prev is None and df_curr is None and df_old2 is None:
+    st.info("Upload at least one Excel file.")
+    st.stop()
+
+st.divider()
+
+# GLOBAL COLOR MAP GENERATION
+GLOBAL_COLOR_MAP = {"Other": "#808080"}
+all_loaded_dfs_for_colors = [d for d in [df_curr, df_prev, df_old2] if d is not None]
+
+if len(all_loaded_dfs_for_colors) > 0:
+    all_categories = set()
+    all_brands = set()
+    all_countries = set()
+    all_customers = set()
+    all_years = []
+    
+    for d, c, y in zip([df_old2, df_prev, df_curr], [cols_old2, cols_prev, cols_curr], [year_old2, year_prev, year_curr]):
+        if d is not None:
+            all_categories.update(d[c["Cat"]].dropna().unique())
+            all_brands.update(d[c["Brand"]].dropna().unique())
+            all_countries.update(d[c["Country"]].dropna().unique())
+            all_customers.update(d[c["Customer"]].dropna().unique())
+            if str(y) not in all_years:
+                all_years.append(str(y))
+                
+    all_categories = sorted(list(all_categories))
+    all_brands = sorted(list(all_brands))
+    all_countries = sorted(list(all_countries))
+    all_customers = sorted(list(all_customers))
+    
+    year_colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+    for i, y in enumerate(all_years):
+        GLOBAL_COLOR_MAP[y] = year_colors[i % len(year_colors)]
+        
+    palette = px.colors.qualitative.Alphabet + px.colors.qualitative.Light24 + px.colors.qualitative.Dark24 + px.colors.qualitative.Vivid
+    
+    c_idx = 0
+    for item in all_categories + all_brands + all_countries + all_customers:
+        if item not in GLOBAL_COLOR_MAP:
+            GLOBAL_COLOR_MAP[item] = palette[c_idx % len(palette)]
+            c_idx += 1
+
+# TABS CREATION (ONLY ONCE!)
+tabs = st.tabs([
+    "📈 Overview",
+    "📅 Detailed L4L",
+    "📊 Full Year Analysis",
+    "👥 Customer Review",
+    "🌍 Country Review",
+    "🏷️ Brand Review",
+    "⚠️ Churn & Acquisition"
+])
+tab_overview, tab_l4l, tab_full, tab_customer, tab_country, tab_brand, tab_churn = tabs
+
+# HIERARCHY LOGIC FOR MONTHS
+hierarchy_df = None
+hierarchy_cols = None
+
+if df_curr is not None:
+    hierarchy_df = df_curr
+    hierarchy_cols = cols_curr
+elif df_prev is not None:
+    hierarchy_df = df_prev
+    hierarchy_cols = cols_prev
+elif df_old2 is not None:
+    hierarchy_df = df_old2
+    hierarchy_cols = cols_old2
+
+hierarchy_months = []
+if hierarchy_df is not None:
+    hm_raw = hierarchy_df[hierarchy_cols["Month"]].dropna().unique().tolist()
+    hm_matched = [m for m in hm_raw if m in MONTHS_ORDER]
+    hierarchy_months = sorted(hm_matched, key=lambda x: MONTHS_ORDER.index(x))
+
+st.sidebar.info(f"ℹ️ Default months detected from top priority file: {', '.join(hierarchy_months) if hierarchy_months else 'None'}")
+
+# STYLER FUNCTION FOR DELTA ROWS
+def style_monthly_table(df):
+    def color_cells(s):
+        if "∆" in str(s.get('Year', '')):
+            row_colors = []
+            for col in df.columns:
+                val = s[col]
+                if col == "Year":
+                    row_colors.append("")
+                else:
+                    if isinstance(val, str) and "🟢" in val:
+                        row_colors.append("background-color: rgba(144, 238, 144, 0.4); color: black;")
+                    elif isinstance(val, str) and "🔴" in val:
+                        row_colors.append("background-color: rgba(255, 182, 193, 0.4); color: black;")
+                    else:
+                        row_colors.append("")
+            return row_colors
+        else:
+            return [""] * len(s)
+    return df.style.apply(color_cells, axis=1)
+
+# ================= OVERVIEW: 3-YEAR L4L =================
+with tab_overview:
+    st.header("Overview — 3-year Comparison")
+
+    all_dfs = [df_curr, df_prev, df_old2]
+    loaded_dfs = [d for d in all_dfs if d is not None]
+
+    if len(loaded_dfs) < 1:
+        st.warning("Please upload data.")
+    else:
+        base_cols = hierarchy_cols
+        filtered_dfs, meta = apply_shared_filters(loaded_dfs, base_cols, "ov", default_months=hierarchy_months)
+
+        df_old2_f = df_prev_f = df_curr_f = None
+        f_idx = 0
+        if df_curr is not None: df_curr_f = filtered_dfs[f_idx]; f_idx += 1
+        if df_prev is not None: df_prev_f = filtered_dfs[f_idx]; f_idx += 1
+        if df_old2 is not None: df_old2_f = filtered_dfs[f_idx]
+
+        st.divider()
+        st.markdown("### Net Value Comparison (Global Filters Applied)")
+        
+        vals = []
+        years = []
+        if df_old2_f is not None: 
+            vals.append(float(sum_decimal(df_old2_f[cols_old2["Net"]])))
+            years.append(year_old2)
+        if df_prev_f is not None: 
+            vals.append(float(sum_decimal(df_prev_f[cols_prev["Net"]])))
+            years.append(year_prev)
+        if df_curr_f is not None: 
+            vals.append(float(sum_decimal(df_curr_f[cols_curr["Net"]])))
+            years.append(year_curr)
+
+        if vals:
+            chart_df = pd.DataFrame({"Year": years, "Net (EUR)": vals}).sort_values("Year")
+            st.plotly_chart(px.bar(chart_df, x="Year", y="Net (EUR)", text="Net (EUR)", title="Net Value YTD", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True, key="ov_net_bar")
+
+        def render_three_year_analysis(group_col, section_title, dfs, year_list, cols_list, display_name, show_pie=True, color_map=None):
+            color_map = color_map or {}
+            st.divider()
+            st.markdown(f"### {section_title}")
+            
+            group_dfs = []
+            for df, y, c in zip(dfs, year_list, cols_list):
+                if df is not None:
+                    net_col = c["Net"]
+                    g = df.groupby(group_col).agg({net_col: sum_decimal}).reset_index().rename(columns={net_col: f"Net {y}"})
+                    group_dfs.append((g, y))
+
+            if group_dfs:
+                master = group_dfs[0][0]
+                for g, y in group_dfs[1:]:
+                    master = pd.merge(master, g, on=group_col, how="outer")
+                master = master.fillna(Decimal('0'))
+
+                group_dfs_chrono = sorted(group_dfs, key=lambda x: x[1])
+                y_newest = group_dfs_chrono[-1][1]
+                
+                if len(group_dfs_chrono) >= 2:
+                    y1 = group_dfs_chrono[-2][1]
+                    master[f"YoY {y_newest} vs {y1}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1) if not master.empty else []
+
+                master = sort_by_col_desc(master, f"Net {y_newest}")
+
+                if show_pie:
+                    pie_cols = st.columns(len(group_dfs_chrono))
+                    for i, (g, y) in enumerate(group_dfs_chrono):
+                        plot_df = master.copy()
+                        plot_df[f"Net {y}"] = plot_df.get(f"Net {y}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
+                        plot_df.loc[plot_df[f"Net {y}"] < 0, f"Net {y}"] = 0 
+                        
+                        total_net = plot_df[f"Net {y}"].sum()
+                        if total_net > 0:
+                            plot_df['Share'] = plot_df[f"Net {y}"] / total_net
+                            plot_df.loc[plot_df['Share'] < 0.005, group_col] = 'Other'
+                            plot_df = plot_df.groupby(group_col, as_index=False)[[f"Net {y}"]].sum()
+
+                        with pie_cols[i]:
+                            st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} Pie {y}", color=group_col, color_discrete_map=color_map), use_container_width=True, key=f"ov_{group_col}_{y}_pie")
+
+                display_df = master.copy()
+                for g, y in group_dfs_chrono:
+                    display_df[f"Net {y}"] = display_df.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                
+                if len(group_dfs_chrono) >= 2:
+                    y1 = group_dfs_chrono[-2][1]
+                    display_df[f"YoY {y_newest} vs {y1} (%)"] = display_df.get(f"YoY {y_newest} vs {y1}", pd.Series(dtype=str)).apply(yoy_label)
+                    
+                display_df = display_df.rename(columns={group_col: display_name})
+                
+                cols_order = [display_name]
+                for _, y in group_dfs_chrono:
+                    cols_order.append(f"Net {y}")
+                if len(group_dfs_chrono) >= 2:
+                    cols_order.append(f"YoY {y_newest} vs {group_dfs_chrono[-2][1]} (%)")
+                
+                st.dataframe(add_index(display_df[cols_order]), use_container_width=True)
+
+        base_dfs = [df_curr_f, df_prev_f, df_old2_f]
+        base_years = [year_curr, year_prev, year_old2]
+        base_col_maps = [cols_curr, cols_prev, cols_old2]
+        
+        def override_filter(df, c, orig_df):
+            if df is None or orig_df is None: return None
+            d = orig_df.copy()
+            if meta["country"] != "All Countries": d = d[d[c["Country"]] == meta["country"]]
+            if meta["customer"] != "All Customers": d = d[d[c["Customer"]] == meta["customer"]]
+            if meta["months"]: d = d[d[c["Month"]].isin(meta["months"])]
+            return d
+
+        dfs_cat = [override_filter(df_f, c_map, orig_d) for df_f, c_map, orig_d in zip(base_dfs, base_col_maps, [df_curr, df_prev, df_old2])]
+
+        if meta["category"] == "All Categories":
+            render_three_year_analysis(base_cols["Cat"], "Category Comparison", dfs_cat, base_years, base_col_maps, "Category", show_pie=True, color_map=GLOBAL_COLOR_MAP)
+
+        render_three_year_analysis(base_cols["Brand"], "Brand Comparison", base_dfs, base_years, base_col_maps, "Brand", show_pie=True, color_map=GLOBAL_COLOR_MAP)
+
+        st.divider()
+        is_cat_all = (meta["category"] == "All Categories")
+        st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta['category']})")
+        
+        ins_dfs_ov = []
+        for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+            if orig_d is not None:
+                d_f = orig_d.copy()
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta["country"]]
+                if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
+                if not is_cat_all:
+                    d_f = d_f[d_f[c["Cat"]] == meta["category"]]
+                if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
+                
+                if not d_f.empty:
+                    if is_cat_all:
+                        g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs_ov.append((g, y, c["Cat"]))
+                    else:
+                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs_ov.append((g, y, c["Code"]))
+                
+        if len(ins_dfs_ov) >= 2:
+            if is_cat_all:
+                c_master_key = ins_dfs_ov[0][2]
+                master_ins_ov = ins_dfs_ov[0][0]
+                for g, y, _ in ins_dfs_ov[1:]:
+                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_master_key, how="outer")
+                master_ins_ov = master_ins_ov.fillna(Decimal('0'))
+                disp_prefix = [c_master_key]
+            else:
+                c_code = ins_dfs_ov[0][2]
+                c_desc = base_cols["Desc"]
+                master_ins_ov = ins_dfs_ov[0][0]
+                for g, y, _ in ins_dfs_ov[1:]:
+                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_code, how="outer", suffixes=("", "_y"))
+                    master_ins_ov[c_desc] = master_ins_ov[c_desc].fillna(master_ins_ov[c_desc + "_y"])
+                    master_ins_ov = master_ins_ov.drop(columns=[c_desc + "_y"])
+                for col in master_ins_ov.columns:
+                    if "Net" in col:
+                        master_ins_ov[col] = master_ins_ov[col].fillna(Decimal('0'))
+                master_ins_ov = master_ins_ov.rename(columns={c_code: "Code", c_desc: "Description"})
+                disp_prefix = ["Code", "Description"]
+            
+            ins_chrono_ov = sorted(ins_dfs_ov, key=lambda x: x[1])
+            ov_years = [item[1] for item in ins_chrono_ov]
+            y_newest = ov_years[-1]
+            y1 = ov_years[-2]
+            
+            master_ins_ov["Change_1_Raw"] = master_ins_ov.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
+            master_ins_ov["YoY_1"] = master_ins_ov.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
+            
+            if len(ov_years) >= 2:
+                master_ins_ov[f"Change {y_newest} vs {y1}"] = master_ins_ov["Change_1_Raw"].apply(to_display_num)
+                master_ins_ov[f"YoY {y_newest} vs {y1} (%)"] = master_ins_ov["YoY_1"].apply(yoy_label)
+                display_cols = disp_prefix + [f"Net {y}" for y in ov_years] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("#### Top 5 Growth" + (" Categories" if is_cat_all else " SKUs"))
+                growth = master_ins_ov[master_ins_ov["Change_1_Raw"] > 0].sort_values("Change_1_Raw", ascending=False).head(5)
+                if not growth.empty:
+                    disp = growth.copy()
+                    for y in ov_years:
+                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                    st.dataframe(add_index(disp[display_cols]))
+                else:
+                    st.info("No growth found.")
+                    
+            with c2:
+                st.write("#### Top 5 Decline" + (" Categories" if is_cat_all else " SKUs"))
+                decline = master_ins_ov[master_ins_ov["Change_1_Raw"] < 0].sort_values("Change_1_Raw", ascending=True).head(5)
+                if not decline.empty:
+                    disp = decline.copy()
+                    for y in ov_years:
+                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                    st.dataframe(add_index(disp[display_cols]))
+                else:
+                    st.success("No decline found.")
+
+# ================= DETAILED L4L =================
+with tab_l4l:
+    st.header("Detailed Like-for-Like")
+
+    year_options = []
+    year_to_df = {}
+    year_to_cols = {}
+
+    if df_old2 is not None:
+        year_options.append(year_old2)
+        year_to_df[year_old2] = df_old2
+        year_to_cols[year_old2] = cols_old2
+    if df_prev is not None:
+        year_options.append(year_prev)
+        year_to_df[year_prev] = df_prev
+        year_to_cols[year_prev] = cols_prev
+    if df_curr is not None:
+        year_options.append(year_curr)
+        year_to_df[year_curr] = df_curr
+        year_to_cols[year_curr] = cols_curr
+
+    if len(year_options) < 2:
+        st.warning("Detailed L4L requires at least two year files.")
+    else:
+        st.markdown("#### Select years (older on the left, newer on the right)")
+        left_year_option = st.selectbox("Older year", year_options, index=0, key="l4l_left_year")
+        right_year_option = st.selectbox("Newer year", year_options, index=1 if len(year_options) > 1 else 0, key="l4l_right_year")
+
+        if left_year_option == right_year_option:
+            st.error("Older year and newer year must be different.")
+        else:
+            df_left = year_to_df[left_year_option]
+            cols_left = year_to_cols[left_year_option]
+            df_right = year_to_df[right_year_option]
+            cols_right = year_to_cols[right_year_option]
+
+            st.markdown("### Filters for Detailed L4L")
+            filtered_list, meta = apply_shared_filters([df_left, df_right], cols_left, unique_prefix="l4l", default_months=hierarchy_months)
+
+            left_filtered, right_filtered = filtered_list
+
+            render_two_year_dashboard(
+                df_new=right_filtered, df_old=left_filtered, cols_new=cols_right, cols_old=cols_left,
+                context_name="detailed_l4l", unique_prefix="detailed_l4l", category_filter=meta["category"], color_map=GLOBAL_COLOR_MAP
+            )
+
+# ================= FULL YEAR ANALYSIS =================
+with tab_full:
+    st.header("Full Year Analysis")
+
+    available_years = []
+    year_map_df = {}
+    year_map_cols = {}
+
+    if df_old2 is not None:
+        available_years.append(year_old2)
+        year_map_df[year_old2] = df_old2
+        year_map_cols[year_old2] = cols_old2
+    if df_prev is not None:
+        available_years.append(year_prev)
+        year_map_df[year_prev] = df_prev
+        year_map_cols[year_prev] = cols_prev
+    if df_curr is not None:
+        available_years.append(year_curr)
+        year_map_df[year_curr] = df_curr
+        year_map_cols[year_curr] = cols_curr
+
+    if not available_years:
+        st.info("No years available for full year analysis.")
+    else:
+        selected_full = st.selectbox("Select year for full year analysis", available_years, key="full_year_sel")
+        df_selected = year_map_df[selected_full]
+        cols_selected = year_map_cols[selected_full]
+
+        st.markdown("### Filters for Full Year")
+        filtered_selected, meta = create_single_filters(df_selected, cols_selected, unique_prefix="full")
+
+        render_single_year_dashboard(filtered_selected, cols_selected, selected_full, unique_prefix="full_dash", category_filter=meta["category"], color_map=GLOBAL_COLOR_MAP)
 
 # ================= CUSTOMER REVIEW =================
 with tab_customer:
@@ -1744,7 +2159,7 @@ with tab_brand:
         if "br_months" not in st.session_state:
             st.session_state["br_months"] = default_br_m
             
-        selected_months_br = st.multiselect("📅 Months", options=options_br_m, key="br_months")
+        selected_months_br = st.multiselect("📅 Months", options=options_br_m, default=default_br_m, key="br_months")
 
         if selected_brand_specific == "All Brands":
             st.info("⚠️ Please select a specific Brand from the filter above to view the dedicated analysis.")
@@ -1925,7 +2340,7 @@ with tab_churn:
         if "ch_months" not in st.session_state:
             st.session_state["ch_months"] = default_ch_m
             
-        selected_months_ch = ch4.multiselect("📅 Months", options=options_ch_m, key="ch_months")
+        selected_months_ch = ch4.multiselect("📅 Months", options=options_ch_m, default=default_ch_m, key="ch_months")
 
         ch_valid_dfs = []
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
