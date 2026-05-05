@@ -2437,7 +2437,7 @@ with tab_churn:
             col_new, col_lost = st.columns(2)
             
             with col_new:
-                st.markdown(f"#### 🟢 Top 10 New Customers ({y_new})")
+                st.markdown(f"#### 🟢 New Customers ({y_new})")
                 df_new_cust = df_new_cust.sort_values("Net_New", ascending=False).head(10)
                 disp_new = df_new_cust[["Customer", "Net_New"]].copy()
                 disp_new["Net_New"] = disp_new["Net_New"].apply(to_display_num)
@@ -2448,7 +2448,7 @@ with tab_churn:
                     st.dataframe(add_index(disp_new), use_container_width=True)
                     
             with col_lost:
-                st.markdown(f"#### 🔴 Top 10 Lost Customers (Bought in {y_old}, 0 in {y_new})")
+                st.markdown(f"#### 🔴 Lost Customers (Bought in {y_old}, 0 in {y_new})")
                 df_lost_cust = df_lost_cust.sort_values("Net_Old", ascending=False).head(10)
                 disp_lost = df_lost_cust[["Customer", "Net_Old"]].copy()
                 disp_lost["Net_Old"] = disp_lost["Net_Old"].apply(to_display_num)
