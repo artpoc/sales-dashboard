@@ -409,7 +409,9 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
         
         key_months = f"{unique_prefix}_months"
         
-        selected_months = c4.multiselect("📅 Months", options=options_m, default=default_m, key=key_months)
+        # Wyświetlamy dynamiczną liczbę miesięcy w etykiecie
+        label_m = f"📅 Months ({len(default_months)} active)" if default_months else "📅 Months"
+        selected_months = c4.multiselect(label_m, options=options_m, default=default_m, key=key_months)
     else:
         selected_months = default_months if (default_months is not None and len(default_months) > 0) else MONTHS_ORDER
 
@@ -929,7 +931,6 @@ def render_two_year_dashboard(
         d_disp[f"Change {year_new} vs {year_old}"] = d_disp["Change_Raw"].apply(to_display_num)
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(add_index(d_disp[disp_prefix + [f"Net {year_old}", f"Net {year_new}", f"Change {year_new} vs {year_old}", "YoY (%)"]]))
-
 
     st.divider()
 
@@ -1653,7 +1654,9 @@ with tab_customer:
         default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
         if not default_cr_m: default_cr_m = options_cr_m
         
-        selected_months_cr = c4.multiselect("📅 Months", options=options_cr_m, default=default_cr_m, key="cr_months")
+        # Wyświetlamy dynamiczną liczbę miesięcy w etykiecie
+        label_cr_m = f"📅 Months ({len(default_cr_m)} active)" if default_cr_m else "📅 Months"
+        selected_months_cr = c4.multiselect(label_cr_m, options=options_cr_m, default=default_cr_m, key="cr_months")
 
         meta_cr = {
             "country": selected_country_cr,
@@ -2007,7 +2010,8 @@ with tab_country:
         default_co_m = [m for m in hierarchy_months if m in options_co_m]
         if not default_co_m: default_co_m = options_co_m
         
-        selected_months_co = cc3.multiselect("📅 Months", options=options_co_m, default=default_co_m, key="co_months")
+        label_co_m = f"📅 Months ({len(default_co_m)} active)" if default_co_m else "📅 Months"
+        selected_months_co = cc3.multiselect(label_co_m, options=options_co_m, default=default_co_m, key="co_months")
 
         co_valid_dfs = []
         excluded_countries = ["romania", "spain", "united kingdom"]
@@ -2129,7 +2133,7 @@ with tab_country:
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write("#### Top 5 Growth Countries")
+                    st.write(f"#### Top 5 Growth Countries")
                     growth = ins_master_co[ins_master_co["Change_Raw"] > 0].sort_values("Change_Raw", ascending=False).head(5)
                     if not growth.empty:
                         disp = growth.copy()
@@ -2182,7 +2186,8 @@ with tab_brand:
         default_br_m = [m for m in hierarchy_months if m in options_br_m]
         if not default_br_m: default_br_m = options_br_m
         
-        selected_months_br = st.multiselect("📅 Months", options=options_br_m, default=default_br_m, key="br_months")
+        label_br_m = f"📅 Months ({len(default_br_m)} active)" if default_br_m else "📅 Months"
+        selected_months_br = st.multiselect(label_br_m, options=options_br_m, default=default_br_m, key="br_months")
 
         if selected_brand_specific == "All Brands":
             st.info("⚠️ Please select a specific Brand from the filter above to view the dedicated analysis.")
@@ -2322,11 +2327,11 @@ with tab_brand:
                 c_pie1, c_pie2 = st.columns(2)
                 
                 with c_pie1:
-                    st.write(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
+                    st.markdown(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_country, names=c_latest["Country"], values=f"Net {y_latest}", color=c_latest["Country"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
                 with c_pie2:
-                    st.write(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
+                    st.markdown(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_cust, names=c_latest["Customer"], values=f"Net {y_latest}", color=c_latest["Customer"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
@@ -2370,7 +2375,8 @@ with tab_churn:
         default_ch_m = [m for m in hierarchy_months if m in options_ch_m]
         if not default_ch_m: default_ch_m = options_ch_m
         
-        selected_months_ch = ch4.multiselect("📅 Months", options=options_ch_m, default=default_ch_m, key="ch_months")
+        label_ch_m = f"📅 Months ({len(default_ch_m)} active)" if default_ch_m else "📅 Months"
+        selected_months_ch = ch4.multiselect(label_ch_m, options=options_ch_m, default=default_ch_m, key="ch_months")
 
         ch_valid_dfs = []
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
@@ -2411,7 +2417,7 @@ with tab_churn:
             kpi1, kpi2, kpi3 = st.columns(3)
             kpi1.metric("Acquired Value (from New Customers)", f"{format_number_plain(val_acquired)} EUR", f"{len(df_new_cust)} Customers")
             
-            # Wymuszenie czerwonego koloru dla utraconej sprzedaży
+            # Wymuszenie czerwonego koloru dla utraconej sprzedaży w Churn & Acquisition
             kpi2.metric("Lost Value (from Churned Customers)", f"{format_number_plain(val_lost)} EUR", f"-{len(df_lost_cust)} Customers", delta_color="normal")
             
             impact_color = "normal" if net_impact >= 0 else "inverse"
