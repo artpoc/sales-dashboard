@@ -369,7 +369,7 @@ def create_single_filters(df: pd.DataFrame, cols: dict, unique_prefix: str):
     return df_filtered, meta
 
 
-def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, show_months=True):
+def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, show_months=True, hm_sig=""):
     if not dfs:
         return [], None
 
@@ -404,14 +404,12 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
 
     if show_months:
         options_m = MONTHS_ORDER
-        # Filtrujemy na "sztywno", by podświetlić tylko istniejące w pliku miesiące
         default_m = [m for m in (default_months or []) if m in options_m]
         if not default_m:
             default_m = options_m
             
-        key_months = f"{unique_prefix}_months"
-        
-        # Generowanie nagłówka z widoczną ilością aktywnych
+        # Zastosowanie dynamicznego klucza (hm_sig) łamie "State Stickiness" w Streamlit
+        key_months = f"{unique_prefix}_months_{hm_sig}"
         label_m = f"📅 Months ({len(default_m)} active)"
         
         selected_months = c4.multiselect(label_m, options=options_m, default=default_m, key=key_months)
@@ -1262,20 +1260,18 @@ st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
 st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
 def update_cached_file(file_obj, state_key, label):
-    keys_to_del = ["ov_months", "l4l_months", "cr_months", "co_months", "br_months", "ch_months"]
+    # Wyczyszczenie jakichkolwiek kluczy miesięcy przy załadowaniu nowego pliku
     if file_obj is None:
         st.session_state[state_key] = (None, None, None)
         st.session_state[f"{state_key}_id"] = None
-        for k in keys_to_del: 
-            if k in st.session_state:
-                del st.session_state[k]
     elif st.session_state.get(f"{state_key}_id") != file_obj.file_id:
         file_obj.seek(0)
         st.session_state[state_key] = load_single_year_file(file_obj, label)
         st.session_state[f"{state_key}_id"] = file_obj.file_id
-        for k in keys_to_del: 
-            if k in st.session_state:
-                del st.session_state[k]
+        
+        keys_to_del = [k for k in st.session_state.keys() if "_months_" in k]
+        for k in keys_to_del:
+            del st.session_state[k]
 
 if 'data_older' not in st.session_state: st.session_state['data_older'] = (None, None, None)
 if 'data_prev' not in st.session_state: st.session_state['data_prev'] = (None, None, None)
@@ -1358,17 +1354,10 @@ if hierarchy_df is not None:
     hm_raw = hierarchy_df[hierarchy_cols["Month"]].dropna().unique().tolist()
     hierarchy_months = sorted([m for m in hm_raw if m in MONTHS_ORDER], key=lambda x: MONTHS_ORDER.index(x))
 
-st.sidebar.info(f"ℹ️ Default months detected: {', '.join(hierarchy_months) if hierarchy_months else 'None'}")
+# Główne rozwiązanie problemu ze "State Stickiness"
+hm_sig = "".join([m[:3] for m in hierarchy_months]) if hierarchy_months else "default"
 
-# ================= MAGIC FIX FOR SESSION STATE STICKINESS =================
-current_hm_str = ",".join(hierarchy_months)
-if st.session_state.get('last_hm_str') != current_hm_str:
-    keys_to_reset = ["ov_months", "l4l_months", "cr_months", "co_months", "br_months", "ch_months"]
-    for k in keys_to_reset:
-        if k in st.session_state:
-            del st.session_state[k]
-    st.session_state['last_hm_str'] = current_hm_str
-# ========================================================================
+st.sidebar.info(f"ℹ️ Default months detected: {', '.join(hierarchy_months) if hierarchy_months else 'None'}")
 
 def style_monthly_table(df):
     def color_cells(s):
@@ -1397,7 +1386,7 @@ with tab_overview:
     if not loaded_dfs: 
         st.warning("Please upload data.")
     else:
-        filtered_dfs, meta = apply_shared_filters(loaded_dfs, hierarchy_cols, "ov", default_months=hierarchy_months)
+        filtered_dfs, meta = apply_shared_filters(loaded_dfs, hierarchy_cols, "ov", default_months=hierarchy_months, hm_sig=hm_sig)
         df_curr_f = filtered_dfs[0] if df_curr is not None else None
         df_prev_f = filtered_dfs[1 if df_curr is not None else 0] if df_prev is not None else None
         df_old2_f = filtered_dfs[-1] if df_old2 is not None else None
@@ -1585,7 +1574,7 @@ with tab_l4l:
             cols_right = year_to_cols[right_year_option]
 
             st.markdown("### Filters for Detailed L4L")
-            filtered_list, meta = apply_shared_filters([df_left, df_right], cols_left, unique_prefix="l4l", default_months=hierarchy_months)
+            filtered_list, meta = apply_shared_filters([df_left, df_right], cols_left, unique_prefix="l4l", default_months=hierarchy_months, hm_sig=hm_sig)
 
             left_filtered, right_filtered = filtered_list
 
@@ -1668,9 +1657,10 @@ with tab_customer:
         default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
         if not default_cr_m:
             default_cr_m = options_cr_m
-        
+            
+        key_cr_mo = f"cr_months_{hm_sig}"
         label_cr_m = f"📅 Months ({len(default_cr_m)} active)"
-        selected_months_cr = c4.multiselect(label_cr_m, options=options_cr_m, default=default_cr_m, key="cr_months")
+        selected_months_cr = c4.multiselect(label_cr_m, options=options_cr_m, default=default_cr_m, key=key_cr_mo)
 
         meta_cr = {
             "country": selected_country_cr,
@@ -1712,7 +1702,7 @@ with tab_customer:
                 kc3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
                 kc4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
             else:
-                st.info("Not enough data to calculate comparison KPIs (need at least 2 lat).")
+                st.info("Not enough data to calculate comparison KPIs (need at least 2 years).")
                 
             st.divider()
             
@@ -2025,8 +2015,9 @@ with tab_country:
         if not default_co_m:
             default_co_m = options_co_m
             
+        key_co_mo = f"co_months_{hm_sig}"
         label_co_m = f"📅 Months ({len(default_co_m)} active)"
-        selected_months_co = cc3.multiselect(label_co_m, options=options_co_m, default=default_co_m, key="co_months")
+        selected_months_co = cc3.multiselect(label_co_m, options=options_co_m, default=default_co_m, key=key_co_mo)
 
         co_valid_dfs = []
         excluded_countries = ["romania", "spain", "united kingdom"]
@@ -2148,7 +2139,7 @@ with tab_country:
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"#### Top 5 Growth Countries")
+                    st.write("#### Top 5 Growth Countries")
                     growth = ins_master_co[ins_master_co["Change_Raw"] > 0].sort_values("Change_Raw", ascending=False).head(5)
                     if not growth.empty:
                         disp = growth.copy()
@@ -2202,8 +2193,9 @@ with tab_brand:
         if not default_br_m:
             default_br_m = options_br_m
         
+        key_br_mo = f"br_months_{hm_sig}"
         label_br_m = f"📅 Months ({len(default_br_m)} active)"
-        selected_months_br = st.multiselect(label_br_m, options=options_br_m, default=default_br_m, key="br_months")
+        selected_months_br = st.multiselect(label_br_m, options=options_br_m, default=default_br_m, key=key_br_mo)
 
         if selected_brand_specific == "All Brands":
             st.info("⚠️ Please select a specific Brand from the filter above to view the dedicated analysis.")
@@ -2343,11 +2335,11 @@ with tab_brand:
                 c_pie1, c_pie2 = st.columns(2)
                 
                 with c_pie1:
-                    st.write(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
+                    st.markdown(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_country, names=c_latest["Country"], values=f"Net {y_latest}", color=c_latest["Country"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
                 with c_pie2:
-                    st.write(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
+                    st.markdown(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_cust, names=c_latest["Customer"], values=f"Net {y_latest}", color=c_latest["Customer"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
@@ -2392,8 +2384,9 @@ with tab_churn:
         if not default_ch_m:
             default_ch_m = options_ch_m
             
+        key_ch_mo = f"ch_months_{hm_sig}"
         label_ch_m = f"📅 Months ({len(default_ch_m)} active)"
-        selected_months_ch = ch4.multiselect(label_ch_m, options=options_ch_m, default=default_ch_m, key="ch_months")
+        selected_months_ch = ch4.multiselect(label_ch_m, options=options_ch_m, default=default_ch_m, key=key_ch_mo)
 
         ch_valid_dfs = []
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
