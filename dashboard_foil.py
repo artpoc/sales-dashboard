@@ -289,7 +289,7 @@ def load_single_year_file(file, label: str):
     # STANDARDIZING COLUMNS
     df["Month_Clean"] = df[month_col].apply(normalize_month)
     df["Customer_Clean"] = df[customer_col].astype(str).fillna("").replace("nan", "")
-    df["Country_Clean"] = df[country_col].astype(str).fillna("").replace("nan", "")
+    df["Country_Clean"] = df[country_col].astype(str).fillna("").replace("nan", "").str.strip()
     df["Code_Clean"] = df[code_col].astype(str).fillna("").replace("nan", "").str.strip()
     df["Desc_Clean"] = df[desc_col].astype(str).fillna("").replace("nan", "")
     df["Brand_Clean"] = df[brand_col].astype(str).fillna("").replace("nan", "")
@@ -1518,12 +1518,13 @@ with tab_overview:
                     d_f = d_f[d_f[c["Cat"]] == meta["category"]]
                 if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
                 
-                if is_cat_all:
-                    g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                    ins_dfs_ov.append((g, y, c["Cat"]))
-                else:
-                    g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                    ins_dfs_ov.append((g, y, c["Code"]))
+                if not d_f.empty:
+                    if is_cat_all:
+                        g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs_ov.append((g, y, c["Cat"]))
+                    else:
+                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs_ov.append((g, y, c["Code"]))
                 
         if len(ins_dfs_ov) >= 2:
             if is_cat_all:
@@ -1751,7 +1752,9 @@ with tab_customer:
                     if meta_cr["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta_cr["customer"]]
                     if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                     if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])] 
-                    cr_valid_dfs.append((d_f, y, c))
+                    
+                    if not d_f.empty:
+                        cr_valid_dfs.append((d_f, y, c))
             
             cr_valid_dfs_chrono = sorted(cr_valid_dfs, key=lambda x: x[1])
 
@@ -1858,7 +1861,8 @@ with tab_customer:
                     if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                     if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])]
                     
-                    chart_vals.append({"Year": y, "Net": float(sum_decimal(d_f[c["Net"]]))})
+                    if not d_f.empty:
+                        chart_vals.append({"Year": str(y), "Net": float(sum_decimal(d_f[c["Net"]]))})
             
             if chart_vals:
                 st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True, key="cr_net_bar")
@@ -1880,8 +1884,9 @@ with tab_customer:
                             
                         if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])]
 
-                        g = d_f.groupby(c[group_col_key]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                        group_dfs.append((g, y, c[group_col_key]))
+                        if not d_f.empty:
+                            g = d_f.groupby(c[group_col_key]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                            group_dfs.append((g, y, c[group_col_key]))
 
                 if group_dfs:
                     g_col_name = group_dfs[0][2]
@@ -1954,9 +1959,10 @@ with tab_customer:
                         if meta_cr["category"] != "All Categories": d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                         if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])]
                         
-                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal, c["Qty"]: sum_decimal}).reset_index()
-                        g = g.rename(columns={c["Net"]: f"Net {y}", c["Qty"]: f"Qty {y}"})
-                        l4l_dfs.append((g, y, c))
+                        if not d_f.empty:
+                            g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal, c["Qty"]: sum_decimal}).reset_index()
+                            g = g.rename(columns={c["Net"]: f"Net {y}", c["Qty"]: f"Qty {y}"})
+                            l4l_dfs.append((g, y, c))
                         
                 if l4l_dfs:
                     c_code = l4l_dfs[0][2]["Code"]
@@ -2013,12 +2019,13 @@ with tab_customer:
                         d_f = d_f[d_f[c["Cat"]] == meta_cr["category"]]
                     if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])]
                     
-                    if is_cat_all:
-                        g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                        ins_dfs.append((g, y, c["Cat"]))
-                    else:
-                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                        ins_dfs.append((g, y, c["Code"]))
+                    if not d_f.empty:
+                        if is_cat_all:
+                            g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                            ins_dfs.append((g, y, c["Cat"]))
+                        else:
+                            g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                            ins_dfs.append((g, y, c["Code"]))
                     
             if len(ins_dfs) >= 2:
                 if is_cat_all:
@@ -2107,18 +2114,21 @@ with tab_country:
         selected_months_co = cc3.multiselect("📅 Months", options=options_co_m, key="co_months")
 
         co_valid_dfs = []
-        excluded_countries = ["Romania", "Spain", "United Kingdom"]
+        excluded_countries = ["romania", "spain", "united kingdom"]
         
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
                 
-                d_f = d_f[~d_f[c["Country"]].isin(excluded_countries)]
+                # Zabezpieczone wykluczanie państw (odporne na małe/duże litery i ukryte spacje)
+                d_f = d_f[~d_f[c["Country"]].astype(str).str.lower().str.strip().isin(excluded_countries)]
                 
                 if selected_category_co != "All Categories": d_f = d_f[d_f[c["Cat"]] == selected_category_co]
                 if selected_brand_co != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_co]
                 if selected_months_co: d_f = d_f[d_f[c["Month"]].isin(selected_months_co)] 
-                co_valid_dfs.append((d_f, y, c))
+                
+                if not d_f.empty:
+                    co_valid_dfs.append((d_f, y, c))
         
         co_valid_dfs_chrono = sorted(co_valid_dfs, key=lambda x: x[1])
 
@@ -2128,35 +2138,37 @@ with tab_country:
             co_dfs_grouped = []
             for d_f, y, c in co_valid_dfs_chrono:
                 g = d_f.groupby(c["Country"]).agg({c["Net"]: sum_decimal, c["Qty"]: sum_decimal}).reset_index()
-                g = g.rename(columns={c["Net"]: f"Net {y}", c["Qty"]: f"Qty {y}"})
-                co_dfs_grouped.append((g, y, c))
+                # Bezpieczna unifikacja nazwy kolumny Country
+                g = g.rename(columns={c["Country"]: "Country", c["Net"]: f"Net {y}", c["Qty"]: f"Qty {y}"})
+                co_dfs_grouped.append((g, str(y)))
 
-            c_country = base_cols["Country"]
             master_co = co_dfs_grouped[0][0]
-            for g, y, _ in co_dfs_grouped[1:]:
-                master_co = pd.merge(master_co, g, on=c_country, how="outer")
+            for g, y_str in co_dfs_grouped[1:]:
+                master_co = pd.merge(master_co, g, on="Country", how="outer")
             master_co = master_co.fillna(Decimal('0'))
 
-            y_newest = co_valid_dfs_chrono[-1][1]
-            master_co = sort_by_col_desc(master_co, f"Net {y_newest}")
+            y_newest_str = str(co_valid_dfs_chrono[-1][1])
+            master_co = sort_by_col_desc(master_co, f"Net {y_newest_str}")
 
             # 1. Net Value Comparison (by Country)
             st.divider()
             st.markdown("### Net Value Comparison")
+            
             chart_data_rows = []
-            for d_f, y, c in co_valid_dfs_chrono:
-                g_chart = d_f.groupby(c["Country"]).agg({c["Net"]: sum_decimal}).reset_index()
-                for _, r in g_chart.iterrows():
-                    chart_data_rows.append({
-                        "Year": str(y), 
-                        "Country": r[c["Country"]], 
-                        "Net": float(r[c["Net"]])
-                    })
+            for y_str in [item[1] for item in co_dfs_grouped]:
+                for _, r in master_co.iterrows():
+                    val = float(clean_number(r.get(f"Net {y_str}", Decimal('0'))))
+                    if val != 0:
+                        chart_data_rows.append({
+                            "Year": y_str, 
+                            "Country": r["Country"], 
+                            "Net": val
+                        })
             
             if chart_data_rows:
                 chart_df = pd.DataFrame(chart_data_rows)
+                country_order = master_co["Country"].tolist()
                 
-                country_order = master_co[c_country].tolist()
                 fig = px.bar(
                     chart_df, 
                     x="Country", 
@@ -2170,74 +2182,69 @@ with tab_country:
                 )
                 fig.update_traces(textposition='outside')
                 st.plotly_chart(fig, use_container_width=True, key="co_net_bar")
+            else:
+                st.info("No net values to display for selected filters.")
 
             # 2. Country Performance (L4L) Table
             st.markdown("### Country Performance (L4L)")
-            co_years = [item[1] for item in co_dfs_grouped]
-            display_cols_co = [c_country]
+            co_years_str = [item[1] for item in co_dfs_grouped]
+            display_cols_co = ["Country"]
             
-            for y in co_years:
-                display_cols_co.extend([f"Net {y}", f"Qty {y}"])
+            for y_str in co_years_str:
+                display_cols_co.extend([f"Net {y_str}", f"Qty {y_str}"])
 
-            if len(co_years) >= 2:
-                y1 = co_years[-2]
-                master_co[f"YoY {y_newest} vs {y1} (%)"] = master_co.apply(lambda x: yoy_label(yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0))), axis=1) if not master_co.empty else []
-                display_cols_co.append(f"YoY {y_newest} vs {y1} (%)")
+            if len(co_years_str) >= 2:
+                y1_str = co_years_str[-2]
+                master_co[f"YoY {y_newest_str} vs {y1_str} (%)"] = master_co.apply(lambda x: yoy_label(yoy_calc(x.get(f"Net {y_newest_str}", 0), x.get(f"Net {y1_str}", 0))), axis=1) if not master_co.empty else []
+                display_cols_co.append(f"YoY {y_newest_str} vs {y1_str} (%)")
 
             master_co_disp = master_co.copy()
-            for y in co_years:
-                master_co_disp[f"Net {y}"] = master_co_disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
-                master_co_disp[f"Qty {y}"] = master_co_disp.get(f"Qty {y}", pd.Series(dtype=int)).apply(to_display_num)
+            for y_str in co_years_str:
+                master_co_disp[f"Net {y_str}"] = master_co_disp.get(f"Net {y_str}", pd.Series(dtype=int)).apply(to_display_num)
+                master_co_disp[f"Qty {y_str}"] = master_co_disp.get(f"Qty {y_str}", pd.Series(dtype=int)).apply(to_display_num)
                 
-            master_co_disp = master_co_disp.rename(columns={c_country: "Country"})
-            display_cols_co[0] = "Country"
-            
             st.dataframe(add_index(master_co_disp[display_cols_co]), use_container_width=True)
 
             # 3. Country Market Share (Pie Charts)
             st.divider()
             st.markdown("### Country Market Share")
-            pie_cols_co = st.columns(len(co_valid_dfs_chrono))
-            for i, (g, y, _) in enumerate(co_valid_dfs_chrono):
+            pie_cols_co = st.columns(len(co_dfs_grouped))
+            for i, (g, y_str) in enumerate(co_dfs_grouped):
                 plot_df = master_co.copy()
-                plot_df[f"Net {y}"] = plot_df.get(f"Net {y}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
-                plot_df.loc[plot_df[f"Net {y}"] < 0, f"Net {y}"] = 0
+                plot_df[f"Net {y_str}"] = plot_df.get(f"Net {y_str}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
+                plot_df.loc[plot_df[f"Net {y_str}"] < 0, f"Net {y_str}"] = 0
                 
-                total_net = plot_df[f"Net {y}"].sum()
+                total_net = plot_df[f"Net {y_str}"].sum()
                 if total_net > 0:
-                    plot_df['Share'] = plot_df[f"Net {y}"] / total_net
-                    plot_df.loc[plot_df['Share'] < 0.005, c_country] = 'Other'
-                    plot_df = plot_df.groupby(c_country, as_index=False)[[f"Net {y}"]].sum()
+                    plot_df['Share'] = plot_df[f"Net {y_str}"] / total_net
+                    plot_df.loc[plot_df['Share'] < 0.005, "Country"] = 'Other'
+                    plot_df = plot_df.groupby("Country", as_index=False)[[f"Net {y_str}"]].sum()
 
                 with pie_cols_co[i]:
-                    st.plotly_chart(px.pie(plot_df, names=c_country, values=f"Net {y}", title=f"Country Share {y}", color=c_country, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True, key=f"co_pie_{y}")
+                    st.plotly_chart(px.pie(plot_df, names="Country", values=f"Net {y_str}", title=f"Country Share {y_str}", color="Country", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True, key=f"co_pie_{y_str}")
 
             # 4. Auto Insights
             st.divider()
             st.markdown("### Auto Insights (Country Focus)")
             
-            if len(co_years) >= 2:
+            if len(co_years_str) >= 2:
                 ins_master_co = master_co.copy()
-                y1 = co_years[-2]
+                y1_str = co_years_str[-2]
                 
-                ins_master_co["Change_Raw"] = ins_master_co.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
-                
-                ins_master_co[f"Change {y_newest} vs {y1}"] = ins_master_co["Change_Raw"].apply(to_display_num)
-                
-                if c_country != "Country":
-                    ins_master_co = ins_master_co.rename(columns={c_country: "Country"})
+                ins_master_co["Change_Raw"] = ins_master_co.apply(lambda x: clean_number(x.get(f"Net {y_newest_str}", Decimal('0'))) - clean_number(x.get(f"Net {y1_str}", Decimal('0'))), axis=1)
+                ins_master_co[f"Change {y_newest_str} vs {y1_str}"] = ins_master_co["Change_Raw"].apply(to_display_num)
                 
                 disp_prefix_co = ["Country"]
-                display_cols_ins = disp_prefix_co + [f"Net {y}" for y in co_years] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
+                display_cols_ins = disp_prefix_co + [f"Net {y}" for y in co_years_str] + [f"Change {y_newest_str} vs {y1_str}", f"YoY {y_newest_str} vs {y1_str} (%)"]
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write("#### Top 5 Growth Countries")
+                    st.write(f"#### Top 5 Growth Countries")
                     growth = ins_master_co[ins_master_co["Change_Raw"] > 0].sort_values("Change_Raw", ascending=False).head(5)
                     if not growth.empty:
                         disp = growth.copy()
-                        for y in co_years:
-                            disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                        for y_str in co_years_str:
+                            disp[f"Net {y_str}"] = disp.get(f"Net {y_str}", pd.Series(dtype=int)).apply(to_display_num)
                         st.dataframe(add_index(disp[display_cols_ins]))
                     else:
                         st.info("No growth found.")
@@ -2247,8 +2254,8 @@ with tab_country:
                     decline = ins_master_co[ins_master_co["Change_Raw"] < 0].sort_values("Change_Raw", ascending=True).head(5)
                     if not decline.empty:
                         disp = decline.copy()
-                        for y in co_years:
-                            disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                        for y_str in co_years_str:
+                            disp[f"Net {y_str}"] = disp.get(f"Net {y_str}", pd.Series(dtype=int)).apply(to_display_num)
                         st.dataframe(add_index(disp[display_cols_ins]))
                     else:
                         st.success("No decline found.")
