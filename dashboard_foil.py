@@ -404,13 +404,14 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
 
     if show_months:
         options_m = MONTHS_ORDER
-        default_m = default_months if (default_months is not None and len(default_months) > 0) else MONTHS_ORDER
-        default_m = [m for m in default_m if m in options_m]
+        # Filtrujemy na "sztywno", by podświetlić tylko istniejące w pliku miesiące
+        default_m = [m for m in (default_months or []) if m in options_m]
         
         key_months = f"{unique_prefix}_months"
         
-        # Wyświetlamy dynamiczną liczbę miesięcy w etykiecie
-        label_m = f"📅 Months ({len(default_months)} active)" if default_months else "📅 Months"
+        # Generowanie nagłówka z widoczną ilością (tylko na ekranie)
+        label_m = f"📅 Months ({len(default_m)} active)" if default_m else "📅 Months"
+        
         selected_months = c4.multiselect(label_m, options=options_m, default=default_m, key=key_months)
     else:
         selected_months = default_months if (default_months is not None and len(default_months) > 0) else MONTHS_ORDER
@@ -931,6 +932,7 @@ def render_two_year_dashboard(
         d_disp[f"Change {year_new} vs {year_old}"] = d_disp["Change_Raw"].apply(to_display_num)
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(add_index(d_disp[disp_prefix + [f"Net {year_old}", f"Net {year_new}", f"Change {year_new} vs {year_old}", "YoY (%)"]]))
+
 
     st.divider()
 
@@ -1652,9 +1654,8 @@ with tab_customer:
 
         options_cr_m = MONTHS_ORDER 
         default_cr_m = [m for m in hierarchy_months if m in options_cr_m]
-        if not default_cr_m: default_cr_m = options_cr_m
         
-        # Wyświetlamy dynamiczną liczbę miesięcy w etykiecie
+        # Nowy nagłówek tylko dla wyselekcjonowanej ilości aktywnych miesięcy
         label_cr_m = f"📅 Months ({len(default_cr_m)} active)" if default_cr_m else "📅 Months"
         selected_months_cr = c4.multiselect(label_cr_m, options=options_cr_m, default=default_cr_m, key="cr_months")
 
@@ -1698,7 +1699,7 @@ with tab_customer:
                 kc3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
                 kc4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
             else:
-                st.info("Not enough data to calculate comparison KPIs (need at least 2 years).")
+                st.info("Not enough data to calculate comparison KPIs (need at least 2 lat).")
                 
             st.divider()
             
@@ -2008,7 +2009,6 @@ with tab_country:
 
         options_co_m = MONTHS_ORDER 
         default_co_m = [m for m in hierarchy_months if m in options_co_m]
-        if not default_co_m: default_co_m = options_co_m
         
         label_co_m = f"📅 Months ({len(default_co_m)} active)" if default_co_m else "📅 Months"
         selected_months_co = cc3.multiselect(label_co_m, options=options_co_m, default=default_co_m, key="co_months")
@@ -2184,7 +2184,6 @@ with tab_brand:
 
         options_br_m = MONTHS_ORDER 
         default_br_m = [m for m in hierarchy_months if m in options_br_m]
-        if not default_br_m: default_br_m = options_br_m
         
         label_br_m = f"📅 Months ({len(default_br_m)} active)" if default_br_m else "📅 Months"
         selected_months_br = st.multiselect(label_br_m, options=options_br_m, default=default_br_m, key="br_months")
@@ -2327,11 +2326,11 @@ with tab_brand:
                 c_pie1, c_pie2 = st.columns(2)
                 
                 with c_pie1:
-                    st.markdown(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
+                    st.write(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_country, names=c_latest["Country"], values=f"Net {y_latest}", color=c_latest["Country"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
                 with c_pie2:
-                    st.markdown(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
+                    st.write(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_cust, names=c_latest["Customer"], values=f"Net {y_latest}", color=c_latest["Customer"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
@@ -2373,7 +2372,6 @@ with tab_churn:
 
         options_ch_m = MONTHS_ORDER 
         default_ch_m = [m for m in hierarchy_months if m in options_ch_m]
-        if not default_ch_m: default_ch_m = options_ch_m
         
         label_ch_m = f"📅 Months ({len(default_ch_m)} active)" if default_ch_m else "📅 Months"
         selected_months_ch = ch4.multiselect(label_ch_m, options=options_ch_m, default=default_ch_m, key="ch_months")
