@@ -2064,9 +2064,14 @@ with tab_country:
         selected_months_co = cc3.multiselect("📅 Months", options=options_co_m, key="co_months")
 
         co_valid_dfs = []
+        excluded_countries = ["Romania", "Spain", "United Kingdom"]
+        
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
+                
+                d_f = d_f[~d_f[c["Country"]].isin(excluded_countries)]
+                
                 if selected_category_co != "All Categories": d_f = d_f[d_f[c["Cat"]] == selected_category_co]
                 if selected_brand_co != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_co]
                 if selected_months_co: d_f = d_f[d_f[c["Month"]].isin(selected_months_co)] 
@@ -2077,7 +2082,6 @@ with tab_country:
         if not co_valid_dfs_chrono:
             st.warning("No data matches selected criteria.")
         else:
-            # Grouping by country for the table and charts
             co_dfs_grouped = []
             for d_f, y, c in co_valid_dfs_chrono:
                 g = d_f.groupby(c["Country"]).agg({c["Net"]: sum_decimal, c["Qty"]: sum_decimal}).reset_index()
