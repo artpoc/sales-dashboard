@@ -89,7 +89,6 @@ SHORT_MONTHS = {
 }
 
 # ================= FLAT UI COLORS - SPANISH PALETTE =================
-# Z palety usunięto zbyt jasny 'Swan White' (#f7f1e3), aby wykresy były wyraźne.
 SPANISH_PALETTE = [
     "#40407a", "#706fd3", "#34ace0", "#33d9b2", "#2c2c54",
     "#474787", "#aaa69d", "#227093", "#218c74", "#ff5252",
@@ -408,7 +407,6 @@ def apply_shared_filters(dfs, cols, unique_prefix: str, default_months=None, sho
         if not default_m:
             default_m = options_m
             
-        # Zastosowanie dynamicznego klucza (hm_sig) łamie "State Stickiness" w Streamlit
         key_months = f"{unique_prefix}_months_{hm_sig}"
         label_m = f"📅 Months ({len(default_m)} active)"
         
@@ -1260,7 +1258,6 @@ st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
 st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
 def update_cached_file(file_obj, state_key, label):
-    # Wyczyszczenie jakichkolwiek kluczy miesięcy przy załadowaniu nowego pliku
     if file_obj is None:
         st.session_state[state_key] = (None, None, None)
         st.session_state[f"{state_key}_id"] = None
@@ -1269,6 +1266,7 @@ def update_cached_file(file_obj, state_key, label):
         st.session_state[state_key] = load_single_year_file(file_obj, label)
         st.session_state[f"{state_key}_id"] = file_obj.file_id
         
+        # Czyszczenie kluczy filtrów miesięcy żeby zapobiec "State Stickiness"
         keys_to_del = [k for k in st.session_state.keys() if "_months_" in k]
         for k in keys_to_del:
             del st.session_state[k]
@@ -1277,7 +1275,22 @@ if 'data_older' not in st.session_state: st.session_state['data_older'] = (None,
 if 'data_prev' not in st.session_state: st.session_state['data_prev'] = (None, None, None)
 if 'data_curr' not in st.session_state: st.session_state['data_curr'] = (None, None, None)
 
-st.markdown("### Excel Upload (3 separate years)")
+col_title, col_reset = st.columns([8, 2])
+with col_title:
+    st.markdown("### Excel Upload (3 separate years)")
+with col_reset:
+    st.write("") # spacer
+    if st.button("🗑️ Reset All Data", use_container_width=True):
+        for key in ['data_older', 'data_prev', 'data_curr']:
+            st.session_state[key] = (None, None, None)
+            st.session_state[f"{key}_id"] = None
+        
+        # Wymuszone czyszczenie całej pamięci podręcznej filtrów
+        keys_to_del = [k for k in st.session_state.keys() if "_months" in k or "last_hm_str" in k]
+        for k in keys_to_del: 
+            del st.session_state[k]
+        st.rerun()
+
 c_up1, c_up2, c_up3 = st.columns(3)
 with c_up1:
     f1 = st.file_uploader("Older Year (2 years ago)", type=["xlsx"], key="up1")
@@ -1356,6 +1369,12 @@ if hierarchy_df is not None:
 
 # Główne rozwiązanie problemu ze "State Stickiness"
 hm_sig = "".join([m[:3] for m in hierarchy_months]) if hierarchy_months else "default"
+
+if st.session_state.get('last_hm_str') != hm_sig:
+    keys_to_reset = [k for k in st.session_state.keys() if "_months_" in k]
+    for k in keys_to_reset:
+        del st.session_state[k]
+    st.session_state['last_hm_str'] = hm_sig
 
 st.sidebar.info(f"ℹ️ Default months detected: {', '.join(hierarchy_months) if hierarchy_months else 'None'}")
 
@@ -1702,7 +1721,7 @@ with tab_customer:
                 kc3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
                 kc4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
             else:
-                st.info("Not enough data to calculate comparison KPIs (need at least 2 years).")
+                st.info("Not enough data to calculate comparison KPIs (need at least 2 lat).")
                 
             st.divider()
             
@@ -2139,7 +2158,7 @@ with tab_country:
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write("#### Top 5 Growth Countries")
+                    st.write(f"#### Top 5 Growth Countries")
                     growth = ins_master_co[ins_master_co["Change_Raw"] > 0].sort_values("Change_Raw", ascending=False).head(5)
                     if not growth.empty:
                         disp = growth.copy()
@@ -2335,11 +2354,11 @@ with tab_brand:
                 c_pie1, c_pie2 = st.columns(2)
                 
                 with c_pie1:
-                    st.markdown(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
+                    st.write(f"#### Top Countries for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_country, names=c_latest["Country"], values=f"Net {y_latest}", color=c_latest["Country"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
                 with c_pie2:
-                    st.markdown(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
+                    st.write(f"#### Top Customers for {selected_brand_specific} ({y_latest})")
                     st.plotly_chart(px.pie(g_cust, names=c_latest["Customer"], values=f"Net {y_latest}", color=c_latest["Customer"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
@@ -2437,7 +2456,7 @@ with tab_churn:
             col_new, col_lost = st.columns(2)
             
             with col_new:
-                st.markdown(f"#### 🟢 New Customers ({y_new})")
+                st.markdown(f"#### 🟢 Top 10 New Customers ({y_new})")
                 df_new_cust = df_new_cust.sort_values("Net_New", ascending=False).head(10)
                 disp_new = df_new_cust[["Customer", "Net_New"]].copy()
                 disp_new["Net_New"] = disp_new["Net_New"].apply(to_display_num)
@@ -2448,7 +2467,7 @@ with tab_churn:
                     st.dataframe(add_index(disp_new), use_container_width=True)
                     
             with col_lost:
-                st.markdown(f"#### 🔴 Lost Customers (Bought in {y_old}, 0 in {y_new})")
+                st.markdown(f"#### 🔴 Top 10 Lost Customers (Bought in {y_old}, 0 in {y_new})")
                 df_lost_cust = df_lost_cust.sort_values("Net_Old", ascending=False).head(10)
                 disp_lost = df_lost_cust[["Customer", "Net_Old"]].copy()
                 disp_lost["Net_Old"] = disp_lost["Net_Old"].apply(to_display_num)
