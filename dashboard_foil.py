@@ -89,6 +89,7 @@ SHORT_MONTHS = {
 }
 
 # ================= FLAT UI COLORS - SPANISH PALETTE =================
+# Z palety usunięto zbyt jasny 'Swan White' (#f7f1e3), aby wykresy były wyraźne.
 SPANISH_PALETTE = [
     "#40407a", "#706fd3", "#34ace0", "#33d9b2", "#2c2c54",
     "#474787", "#aaa69d", "#227093", "#218c74", "#ff5252",
@@ -1257,6 +1258,9 @@ def render_single_year_dashboard(
 st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
 st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
 
+if 'file_uploader_key' not in st.session_state:
+    st.session_state['file_uploader_key'] = 0
+
 def update_cached_file(file_obj, state_key, label):
     if file_obj is None:
         st.session_state[state_key] = (None, None, None)
@@ -1289,17 +1293,20 @@ with col_reset:
         keys_to_del = [k for k in st.session_state.keys() if "_months" in k or "last_hm_str" in k]
         for k in keys_to_del: 
             del st.session_state[k]
+            
+        # Unikalny klucz uploaderów - zmusza je do "oczyszczenia" interfejsu
+        st.session_state['file_uploader_key'] += 1
         st.rerun()
 
 c_up1, c_up2, c_up3 = st.columns(3)
 with c_up1:
-    f1 = st.file_uploader("Older Year (2 years ago)", type=["xlsx"], key="up1")
+    f1 = st.file_uploader("Older Year (2 years ago)", type=["xlsx"], key=f"up1_{st.session_state['file_uploader_key']}")
     update_cached_file(f1, 'data_older', "older")
 with c_up2:
-    f2 = st.file_uploader("Previous Year", type=["xlsx"], key="up2")
+    f2 = st.file_uploader("Previous Year", type=["xlsx"], key=f"up2_{st.session_state['file_uploader_key']}")
     update_cached_file(f2, 'data_prev', "prev")
 with c_up3:
-    f3 = st.file_uploader("Current Year (YTD)", type=["xlsx"], key="up3")
+    f3 = st.file_uploader("Current Year (YTD)", type=["xlsx"], key=f"up3_{st.session_state['file_uploader_key']}")
     update_cached_file(f3, 'data_curr', "curr")
 
 df_old2, cols_old2, year_old2 = st.session_state['data_older']
@@ -1721,7 +1728,7 @@ with tab_customer:
                 kc3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
                 kc4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
             else:
-                st.info("Not enough data to calculate comparison KPIs (need at least 2 lat).")
+                st.info("Not enough data to calculate comparison KPIs (need at least 2 years).")
                 
             st.divider()
             
