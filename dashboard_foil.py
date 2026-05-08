@@ -1357,8 +1357,8 @@ if len(all_loaded_dfs_for_colors) > 0:
 st.divider()
 
 # TABS DECLARATION (EXACTLY ONCE)
-tab_overview, tab_l4l, tab_full, tab_customer, tab_country, tab_brand, tab_churn, tab_dead_stock = st.tabs([
-    "📈 Overview", "📅 Detailed L4L", "📊 Full Year Analysis", "👥 Customer Review", "🌍 Country Review", "🏷️ Brand Review", "⚠️ Churn & Acquisition", "📦 Dead Stock"
+tab_overview, tab_l4l, tab_full, tab_customer, tab_category, tab_country, tab_brand, tab_churn, tab_dead_stock = st.tabs([
+    "📈 Overview", "📅 Detailed L4L", "📊 Full Year Analysis", "👥 Customer Review", "📁 Category Review", "🌍 Country Review", "🏷️ Brand Review", "⚠️ Churn & Acquisition", "📦 Dead Stock"
 ])
 
 hierarchy_df, hierarchy_cols = None, None
@@ -1493,7 +1493,7 @@ with tab_overview:
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
-                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta["country"]]
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
                 if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
                 if not is_cat_all: d_f = d_f[d_f[c["Cat"]] == meta["category"]]
                 if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
@@ -1653,19 +1653,6 @@ with tab_full:
             category_filter=meta["category"], 
             color_map=GLOBAL_COLOR_MAP
         )
-
-def get_filtered_cr_dfs(m_dict):
-    v_dfs = []
-    for d_f, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
-        if d_f is not None:
-            tmp = d_f.copy()
-            if m_dict.get("country") and m_dict["country"] != "All Countries": tmp = tmp[tmp[c["Country"]] == m_dict["country"]]
-            if m_dict.get("customer") and m_dict["customer"] != "All Customers": tmp = tmp[tmp[c["Customer"]] == m_dict["customer"]]
-            if m_dict.get("category") and m_dict["category"] != "All Categories": tmp = tmp[tmp[c["Cat"]] == m_dict["category"]]
-            if m_dict.get("brand") and m_dict["brand"] != "All Brands": tmp = tmp[tmp[c["Brand"]] == m_dict["brand"]]
-            if m_dict.get("months"): tmp = tmp[tmp[c["Month"]].isin(m_dict["months"])]
-            if not tmp.empty: v_dfs.append((tmp, str(y), c))
-    return sorted(v_dfs, key=lambda x: x[1])
 
 # ================= TAB: CUSTOMER REVIEW =================
 with tab_customer:
@@ -2030,6 +2017,203 @@ with tab_customer:
                         st.dataframe(add_index(disp[display_cols]))
                     else:
                         st.success("No decline found.")
+
+
+# ================= TAB: CATEGORY REVIEW =================
+with tab_category:
+    st.header("📁 Category Review")
+    
+    dfs_cat_rev = [d for d in [df_curr, df_prev, df_old2] if d is not None]
+    if len(dfs_cat_rev) < 1:
+        st.warning("Please upload data.")
+    else:
+        df_all_cat_rev = pd.concat(dfs_cat_rev, ignore_index=True)
+        
+        cat_c1, cat_c2, cat_c3, cat_c4 = st.columns(4)
+        
+        countries_cat_rev = ["All Countries"] + sorted(df_all_cat_rev[hierarchy_cols["Country"]].replace("", pd.NA).dropna().unique().tolist())
+        selected_country_cat_rev = cat_c1.selectbox("🌎 Country", countries_cat_rev, key="cat_rev_country")
+
+        df_for_cat_rev = df_all_cat_rev.copy()
+        if selected_country_cat_rev != "All Countries":
+            df_for_cat_rev = df_for_cat_rev[df_for_cat_rev[hierarchy_cols["Country"]] == selected_country_cat_rev]
+
+        customers_cat_rev = ["All Customers"] + sorted(df_for_cat_rev[hierarchy_cols["Customer"]].replace("", pd.NA).dropna().unique().tolist())
+        selected_customer_cat_rev = cat_c2.selectbox("🏢 Customer", customers_cat_rev, key="cat_rev_customer")
+
+        brands_cat_rev = ["All Brands"] + sorted(df_for_cat_rev[hierarchy_cols["Brand"]].dropna().unique().tolist())
+        selected_brand_cat_rev = cat_c3.selectbox("🏷️ Brand (Licence)", brands_cat_rev, key="cat_rev_brand")
+
+        categories_cat_rev = ["All Categories"] + sorted(df_for_cat_rev[hierarchy_cols["Cat"]].dropna().unique().tolist())
+        selected_category_specific = cat_c4.selectbox("📦 Category", categories_cat_rev, key="cat_rev_category_specific")
+
+        options_cat_rev_m = MONTHS_ORDER 
+        default_cat_rev_m = [m for m in hierarchy_months if m in options_cat_rev_m]
+        if not default_cat_rev_m:
+            default_cat_rev_m = options_cat_rev_m
+        
+        key_cat_rev_mo = f"cat_rev_months_{hm_sig}"
+        label_cat_rev_m = f"📅 Months ({len(default_cat_rev_m)} active)"
+        selected_months_cat_rev = st.multiselect(label_cat_rev_m, options=options_cat_rev_m, default=default_cat_rev_m, key=key_cat_rev_mo)
+
+        if selected_category_specific == "All Categories":
+            st.info("⚠️ Please select a specific Category from the filter above to view the dedicated analysis.")
+        else:
+            st.markdown(f"### KPI (Current vs Previous) - {selected_category_specific}")
+            cat_rev_valid_dfs = []
+            for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+                if orig_d is not None:
+                    d_f = orig_d.copy()
+                    if selected_country_cat_rev != "All Countries": d_f = d_f[d_f[c["Country"]] == selected_country_cat_rev]
+                    if selected_customer_cat_rev != "All Customers": d_f = d_f[d_f[c["Customer"]] == selected_customer_cat_rev]
+                    if selected_brand_cat_rev != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_cat_rev]
+                    d_f = d_f[d_f[c["Cat"]] == selected_category_specific]
+                    if selected_months_cat_rev: d_f = d_f[d_f[c["Month"]].isin(selected_months_cat_rev)] 
+                    
+                    if not d_f.empty:
+                        cat_rev_valid_dfs.append((d_f, y, c))
+            
+            cat_rev_valid_dfs_chrono = sorted(cat_rev_valid_dfs, key=lambda x: x[1])
+
+            if len(cat_rev_valid_dfs_chrono) >= 2:
+                d_new, y_new, c_new = cat_rev_valid_dfs_chrono[-1]
+                d_old, y_old, c_old = cat_rev_valid_dfs_chrono[-2]
+
+                s_new_net = sum_decimal(d_new[c_new["Net"]])
+                s_old_net = sum_decimal(d_old[c_old["Net"]])
+                s_new_qty = sum_decimal(d_new[c_new["Qty"]])
+                s_old_qty = sum_decimal(d_old[c_old["Qty"]])
+
+                kc1, kc2, kc3, kc4 = st.columns(4)
+                kc1.metric(f"Net {y_old} (EUR)", format_number_plain(s_old_net))
+                kc2.metric(f"Net {y_new} (EUR)", format_number_plain(s_new_net), yoy_label(yoy_calc(s_new_net, s_old_net)))
+                kc3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
+                kc4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
+            else:
+                st.info("Not enough data to calculate comparison KPIs (need at least 2 lat).")
+                
+            st.divider()
+            
+            default_divisor_cat_rev = len(selected_months_cat_rev) if selected_months_cat_rev else 12
+            avg_divisor_cat_rev = st.slider("Select number of months for ∑ and AVG calculation:", min_value=1, max_value=12, value=default_divisor_cat_rev, step=1, key="cat_rev_slider")
+
+            def render_cat_rev_monthly_table(mode="Net"):
+                st.markdown(f"### {mode} Value Monthly Comparison")
+                col_key = "Net" if mode == "Net" else "Qty"
+                sum_col_key = f"∑ (for {avg_divisor_cat_rev} months)"
+                avg_col_key = "Avg Month"
+
+                year_data = {}
+                for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+                    if orig_d is not None:
+                        d_f = orig_d.copy()
+                        if selected_country_cat_rev != "All Countries": d_f = d_f[d_f[c["Country"]] == selected_country_cat_rev]
+                        if selected_customer_cat_rev != "All Customers": d_f = d_f[d_f[c["Customer"]] == selected_customer_cat_rev]
+                        if selected_brand_cat_rev != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_cat_rev]
+                        d_f = d_f[d_f[c["Cat"]] == selected_category_specific]
+
+                        m_vals = {}
+                        for m in MONTHS_ORDER:
+                            val = sum_decimal(d_f[d_f[c["Month"]] == m][c[col_key]])
+                            m_vals[m] = val
+                        
+                        selected_months_for_avg = MONTHS_ORDER[:avg_divisor_cat_rev]
+                        partial_sum = Decimal('0')
+                        for m in selected_months_for_avg: partial_sum += m_vals[m]
+                            
+                        m_vals[sum_col_key] = partial_sum
+                        m_vals[avg_col_key] = partial_sum / Decimal(str(avg_divisor_cat_rev))
+                        year_data[y] = m_vals
+
+                if not year_data: return
+
+                available_years = sorted(list(year_data.keys()))
+                display_rows = []
+                col_keys = MONTHS_ORDER + [sum_col_key, avg_col_key]
+
+                for y in available_years:
+                    row = {"Year": str(y)}
+                    for m in col_keys:
+                        disp_name = SHORT_MONTHS.get(m, m)
+                        row[disp_name] = to_display_num(year_data[y][m])
+                    display_rows.append(row)
+
+                if len(available_years) >= 2:
+                    y_newest = available_years[-1]
+                    y1 = available_years[-2]
+                    row_yoy = {"Year": f"∆ {y_newest} vs {y1}"}
+                    for m in col_keys:
+                        disp_name = SHORT_MONTHS.get(m, m)
+                        if m in selected_months_cat_rev or m in [sum_col_key, avg_col_key]:
+                            row_yoy[disp_name] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
+                        else:
+                            row_yoy[disp_name] = "n/a"
+                    display_rows.append(row_yoy)
+
+                df_disp = pd.DataFrame(display_rows)
+                styled_df = style_monthly_table(df_disp)
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+            render_cat_rev_monthly_table("Net")
+            st.divider()
+            render_cat_rev_monthly_table("Qty")
+
+            st.divider()
+            st.markdown("### Net Value Comparison")
+            chart_vals_cat_rev = []
+            for d_f, y, c in cat_rev_valid_dfs_chrono:
+                chart_vals_cat_rev.append({"Year": str(y), "Net": float(sum_decimal(d_f[c["Net"]]))})
+            
+            if chart_vals_cat_rev:
+                st.plotly_chart(px.bar(pd.DataFrame(chart_vals_cat_rev).sort_values("Year"), x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+
+            st.divider()
+            st.markdown("### Market Penetration (Countries & Customers)")
+            
+            if cat_rev_valid_dfs_chrono:
+                d_latest, y_latest, c_latest = cat_rev_valid_dfs_chrono[-1]
+                
+                g_country = d_latest.groupby(c_latest["Country"]).agg({c_latest["Net"]: sum_decimal}).reset_index()
+                g_country[f"Net {y_latest}"] = g_country[c_latest["Net"]].apply(lambda x: float(clean_number(x)))
+                
+                tot = g_country[f"Net {y_latest}"].sum()
+                if tot > 0:
+                    g_country['Share'] = g_country[f"Net {y_latest}"] / tot
+                    g_country.loc[g_country['Share'] < 0.01, c_latest["Country"]] = 'Other'
+                    g_country = g_country.groupby(c_latest["Country"], as_index=False)[[f"Net {y_latest}"]].sum()
+                
+                g_cust = d_latest.groupby(c_latest["Customer"]).agg({c_latest["Net"]: sum_decimal}).reset_index()
+                g_cust[f"Net {y_latest}"] = g_cust[c_latest["Net"]].apply(lambda x: float(clean_number(x)))
+                
+                tot_c = g_cust[f"Net {y_latest}"].sum()
+                if tot_c > 0:
+                    g_cust['Share'] = g_cust[f"Net {y_latest}"] / tot_c
+                    g_cust.loc[g_cust['Share'] < 0.01, c_latest["Customer"]] = 'Other'
+                    g_cust = g_cust.groupby(c_latest["Customer"], as_index=False)[[f"Net {y_latest}"]].sum()
+                
+                c_pie1, c_pie2 = st.columns(2)
+                
+                with c_pie1:
+                    st.write(f"#### Top Countries for {selected_category_specific} ({y_latest})")
+                    st.plotly_chart(px.pie(g_country, names=c_latest["Country"], values=f"Net {y_latest}", color=c_latest["Country"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+
+                with c_pie2:
+                    st.write(f"#### Top Customers for {selected_category_specific} ({y_latest})")
+                    st.plotly_chart(px.pie(g_cust, names=c_latest["Customer"], values=f"Net {y_latest}", color=c_latest["Customer"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+
+            st.divider()
+            st.markdown(f"### Top 10 SKUs for {selected_category_specific}")
+            if cat_rev_valid_dfs_chrono:
+                d_latest, y_latest, c_latest = cat_rev_valid_dfs_chrono[-1]
+                sku_df = d_latest.groupby(c_latest["Code"]).agg({c_latest["Desc"]: "first", c_latest["Net"]: sum_decimal, c_latest["Qty"]: sum_decimal}).reset_index()
+                sku_df = sort_by_col_desc(sku_df, c_latest["Net"]).head(10)
+                
+                sku_disp = sku_df.copy()
+                sku_disp[c_latest["Net"]] = sku_disp.get(c_latest["Net"], pd.Series(dtype=int)).apply(to_display_num)
+                sku_disp[c_latest["Qty"]] = sku_disp.get(c_latest["Qty"], pd.Series(dtype=int)).apply(to_display_num)
+                sku_disp = sku_disp.rename(columns={c_latest["Code"]: "Code", c_latest["Desc"]: "Description", c_latest["Net"]: f"Net {y_latest}", c_latest["Qty"]: f"Qty {y_latest}"})
+                
+                st.dataframe(add_index(sku_disp[["Code", "Description", f"Net {y_latest}", f"Qty {y_latest}"]]), use_container_width=True)
 
 # ================= TAB: COUNTRY REVIEW =================
 with tab_country:
@@ -2567,10 +2751,24 @@ with tab_dead_stock:
             
             st.divider()
             st.markdown(f"### Sleeping Inventory KPIs ({y_old} ➔ {y_new})")
-            kpi1, kpi2, kpi3 = st.columns(3)
-            kpi1.metric("Total Dead Stock Value", f"{format_number_plain(total_dead_value)} EUR", delta=f"{dead_count} SKUs", delta_color="inverse")
-            kpi2.metric("Total Dead Stock Qty", f"{format_number_plain(total_dead_qty)} PCS")
-            kpi3.metric("Largest Sleeping Category", str(dead_stock['Category'].mode()[0]) if not dead_stock.empty else "N/A")
+            
+            if selected_category_ds == "All Categories":
+                kpi1, kpi2, kpi3 = st.columns(3)
+                kpi1.metric("Total Dead Stock Value", f"{format_number_plain(total_dead_value)} EUR", delta=f"{dead_count} SKUs", delta_color="inverse")
+                kpi2.metric("Total Dead Stock Qty", f"{format_number_plain(total_dead_qty)} PCS")
+                
+                if not dead_stock.empty:
+                    cat_losses = dead_stock.groupby('Category')['Net_Old'].sum().reset_index()
+                    cat_losses = cat_losses.sort_values('Net_Old', ascending=False)
+                    largest_cat = cat_losses.iloc[0]['Category']
+                    largest_cat_val = cat_losses.iloc[0]['Net_Old']
+                    kpi3.metric("Largest Sleeping Category", str(largest_cat), f"-{format_number_plain(largest_cat_val)} EUR", delta_color="normal") # normal bo to strata
+                else:
+                    kpi3.metric("Largest Sleeping Category", "N/A")
+            else:
+                kpi1, kpi2 = st.columns(2)
+                kpi1.metric("Total Dead Stock Value", f"{format_number_plain(total_dead_value)} EUR", delta=f"{dead_count} SKUs", delta_color="inverse")
+                kpi2.metric("Total Dead Stock Qty", f"{format_number_plain(total_dead_qty)} PCS")
             
             st.divider()
             st.markdown(f"#### 🔴 Top 100 Sleeping Products (Sold in {y_old}, 0 in {y_new})")
