@@ -1357,8 +1357,8 @@ if len(all_loaded_dfs_for_colors) > 0:
 st.divider()
 
 # TABS DECLARATION (EXACTLY ONCE)
-tab_overview, tab_l4l, tab_full, tab_customer, tab_country, tab_brand, tab_churn = st.tabs([
-    "📈 Overview", "📅 Detailed L4L", "📊 Full Year Analysis", "👥 Customer Review", "🌍 Country Review", "🏷️ Brand Review", "⚠️ Churn & Acquisition"
+tab_overview, tab_l4l, tab_full, tab_customer, tab_country, tab_brand, tab_churn, tab_dead_stock = st.tabs([
+    "📈 Overview", "📅 Detailed L4L", "📊 Full Year Analysis", "👥 Customer Review", "🌍 Country Review", "🏷️ Brand Review", "⚠️ Churn & Acquisition", "📦 Dead Stock"
 ])
 
 hierarchy_df, hierarchy_cols = None, None
@@ -1653,6 +1653,19 @@ with tab_full:
             category_filter=meta["category"], 
             color_map=GLOBAL_COLOR_MAP
         )
+
+def get_filtered_cr_dfs(m_dict):
+    v_dfs = []
+    for d_f, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+        if d_f is not None:
+            tmp = d_f.copy()
+            if m_dict.get("country") and m_dict["country"] != "All Countries": tmp = tmp[tmp[c["Country"]] == m_dict["country"]]
+            if m_dict.get("customer") and m_dict["customer"] != "All Customers": tmp = tmp[tmp[c["Customer"]] == m_dict["customer"]]
+            if m_dict.get("category") and m_dict["category"] != "All Categories": tmp = tmp[tmp[c["Cat"]] == m_dict["category"]]
+            if m_dict.get("brand") and m_dict["brand"] != "All Brands": tmp = tmp[tmp[c["Brand"]] == m_dict["brand"]]
+            if m_dict.get("months"): tmp = tmp[tmp[c["Month"]].isin(m_dict["months"])]
+            if not tmp.empty: v_dfs.append((tmp, str(y), c))
+    return sorted(v_dfs, key=lambda x: x[1])
 
 # ================= TAB: CUSTOMER REVIEW =================
 with tab_customer:
@@ -2082,6 +2095,27 @@ with tab_country:
             master_co = sort_by_col_desc(master_co, f"Net {y_newest_str}")
 
             st.divider()
+            st.markdown("### 🗺️ Interactive World Map")
+            
+            if not master_co.empty and f"Net {y_newest_str}" in master_co.columns:
+                map_df = master_co.copy()
+                map_df[f"Net {y_newest_str}"] = map_df[f"Net {y_newest_str}"].apply(lambda x: float(clean_number(x)))
+                map_df = map_df[map_df[f"Net {y_newest_str}"] > 0]
+                
+                if not map_df.empty:
+                    fig_map = px.choropleth(
+                        map_df,
+                        locations="Country",
+                        locationmode="country names",
+                        color=f"Net {y_newest_str}",
+                        hover_name="Country",
+                        color_continuous_scale="Blues",
+                        title=f"Global Sales Heatmap ({y_newest_str})"
+                    )
+                    fig_map.update_layout(geo=dict(showframe=False, showcoastlines=True, projection_type='equirectangular'))
+                    st.plotly_chart(fig_map, use_container_width=True)
+
+            st.divider()
             st.markdown("### Net Value Comparison")
             
             chart_data_rows = []
@@ -2453,7 +2487,6 @@ with tab_churn:
             kpi1, kpi2, kpi3 = st.columns(3)
             kpi1.metric("Acquired Value (from New Customers)", f"{format_number_plain(val_acquired)} EUR", f"{len(df_new_cust)} Customers")
             
-            # Wymuszenie czerwonego koloru dla utraconej sprzedaży w Churn & Acquisition
             kpi2.metric("Lost Value (from Churned Customers)", f"{format_number_plain(val_lost)} EUR", f"-{len(df_lost_cust)} Customers", delta_color="normal")
             
             impact_color = "normal" if net_impact >= 0 else "inverse"
@@ -2485,3 +2518,92 @@ with tab_churn:
                     st.dataframe(add_index(disp_lost), use_container_width=True)
         else:
             st.info("Not enough data to calculate comparison KPIs (need at least 2 valid years for the selected filters).")
+
+# ================= TAB: DEAD STOCK & SLEEPING INVENTORY =================
+with tab_dead_stock:
+    st.header("📦 Dead Stock & Sleeping Inventory")
+    
+    dfs_ds = [d for d in [df_curr, df_prev, df_old2] if d is not None]
+    if len(dfs_ds) < 2:
+        st.warning("Please upload at least 2 years of data to analyze Dead Stock.")
+    else:
+        st.info("ℹ️ This analysis compares the **Newest Year** vs the **Previous Year** based on selected months. \n* **Sleeping Inventory:** Products that sold > 0 in Previous Year, but exactly 0 in New Year.")
+        
+        df_all_ds = pd.concat(dfs_ds, ignore_index=True)
+        
+        ds1, ds2, ds3, ds4 = st.columns(4)
+        
+        countries_ds = ["All Countries"] + sorted(df_all_ds[hierarchy_cols["Country"]].replace("", pd.NA).dropna().unique().tolist())
+        selected_country_ds = ds1.selectbox("🌎 Country", countries_ds, key="ds_country")
+
+        categories_ds = ["All Categories"] + sorted(df_all_ds[hierarchy_cols["Cat"]].dropna().unique().tolist())
+        selected_category_ds = ds2.selectbox("📦 Category", categories_ds, key="ds_category")
+        
+        brands_ds = ["All Brands"] + sorted(df_all_ds[hierarchy_cols["Brand"]].dropna().unique().tolist())
+        selected_brand_ds = ds3.selectbox("🏷️ Brand", brands_ds, key="ds_brand")
+
+        options_ds_m = MONTHS_ORDER 
+        default_ds_m = [m for m in hierarchy_months if m in options_ds_m]
+        if not default_ds_m:
+            default_ds_m = options_ds_m
+            
+        key_ds_mo = f"ds_months_{hm_sig}"
+        label_ds_m = f"📅 Months ({len(default_ds_m)} active)"
+        selected_months_ds = ds4.multiselect(label_ds_m, options=options_ds_m, default=default_ds_m, key=key_ds_mo)
+
+        ds_valid_dfs = []
+        for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+            if orig_d is not None:
+                d_f = orig_d.copy()
+                if selected_country_ds != "All Countries": d_f = d_f[d_f[c["Country"]] == selected_country_ds]
+                if selected_category_ds != "All Categories": d_f = d_f[d_f[c["Cat"]] == selected_category_ds]
+                if selected_brand_ds != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_ds]
+                if selected_months_ds: d_f = d_f[d_f[c["Month"]].isin(selected_months_ds)] 
+                
+                if not d_f.empty:
+                    ds_valid_dfs.append((d_f, y, c))
+                    
+        ds_valid_dfs_chrono = sorted(ds_valid_dfs, key=lambda x: x[1])
+        
+        if len(ds_valid_dfs_chrono) >= 2:
+            d_new, y_new, c_new = ds_valid_dfs_chrono[-1]
+            d_old, y_old, c_old = ds_valid_dfs_chrono[-2]
+            
+            g_new = d_new.groupby(c_new["Code"]).agg({c_new["Desc"]: "first", c_new["Brand"]: "first", c_new["Cat"]: "first", c_new["Net"]: sum_decimal, c_new["Qty"]: sum_decimal}).reset_index().rename(columns={c_new["Code"]: "Code", c_new["Desc"]: "Description", c_new["Brand"]: "Brand", c_new["Cat"]: "Category", c_new["Net"]: "Net_New", c_new["Qty"]: "Qty_New"})
+            g_old = d_old.groupby(c_old["Code"]).agg({c_old["Desc"]: "first", c_old["Brand"]: "first", c_old["Cat"]: "first", c_old["Net"]: sum_decimal, c_old["Qty"]: sum_decimal}).reset_index().rename(columns={c_old["Code"]: "Code", c_old["Desc"]: "Description", c_old["Brand"]: "Brand", c_old["Cat"]: "Category", c_old["Net"]: "Net_Old", c_old["Qty"]: "Qty_Old"})
+            
+            merged_ds = pd.merge(g_new, g_old, on="Code", how="outer", suffixes=("_n", "_o")).fillna(Decimal('0'))
+            
+            for col in ["Description", "Brand", "Category"]:
+                merged_ds[col] = merged_ds[f"{col}_n"].replace(Decimal('0'), pd.NA).fillna(merged_ds[f"{col}_o"]).fillna("Unknown")
+                merged_ds = merged_ds.drop(columns=[f"{col}_n", f"{col}_o"])
+            
+            dead_stock = merged_ds[(merged_ds['Net_Old'] > Decimal('0')) & (merged_ds['Net_New'] <= Decimal('0'))].copy()
+            dead_stock = dead_stock.sort_values("Net_Old", ascending=False)
+            
+            total_dead_value = dead_stock['Net_Old'].sum()
+            total_dead_qty = dead_stock['Qty_Old'].sum()
+            dead_count = len(dead_stock)
+            
+            st.divider()
+            st.markdown(f"### Sleeping Inventory KPIs ({y_old} ➔ {y_new})")
+            kpi1, kpi2, kpi3 = st.columns(3)
+            kpi1.metric("Total Dead Stock Value", f"{format_number_plain(total_dead_value)} EUR", delta=f"{dead_count} SKUs", delta_color="inverse")
+            kpi2.metric("Total Dead Stock Qty", f"{format_number_plain(total_dead_qty)} PCS")
+            kpi3.metric("Largest Sleeping Category", str(dead_stock['Category'].mode()[0]) if not dead_stock.empty else "N/A")
+            
+            st.divider()
+            st.markdown(f"#### 🔴 Top 100 Sleeping Products (Sold in {y_old}, 0 in {y_new})")
+            
+            if dead_stock.empty:
+                st.success("🎉 Excellent! No sleeping inventory found for these filters.")
+            else:
+                disp_ds = dead_stock.head(100).copy()
+                disp_ds["Net_Old"] = disp_ds["Net_Old"].apply(to_display_num)
+                disp_ds["Qty_Old"] = disp_ds["Qty_Old"].apply(to_display_num)
+                disp_ds = disp_ds[["Code", "Description", "Category", "Brand", "Net_Old", "Qty_Old"]]
+                disp_ds = disp_ds.rename(columns={"Net_Old": f"Lost Value from {y_old} (EUR)", "Qty_Old": f"Lost Qty from {y_old}"})
+                
+                st.dataframe(add_index(disp_ds), use_container_width=True)
+        else:
+            st.info("Not enough data to calculate Dead Stock (need at least 2 valid years for the selected filters).")
