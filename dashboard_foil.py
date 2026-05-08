@@ -2095,27 +2095,7 @@ with tab_country:
             master_co = sort_by_col_desc(master_co, f"Net {y_newest_str}")
 
             st.divider()
-            st.markdown("### 🗺️ Interactive World Map")
-            
-            if not master_co.empty and f"Net {y_newest_str}" in master_co.columns:
-                map_df = master_co.copy()
-                map_df[f"Net {y_newest_str}"] = map_df[f"Net {y_newest_str}"].apply(lambda x: float(clean_number(x)))
-                map_df = map_df[map_df[f"Net {y_newest_str}"] > 0]
-                
-                if not map_df.empty:
-                    fig_map = px.choropleth(
-                        map_df,
-                        locations="Country",
-                        locationmode="country names",
-                        color=f"Net {y_newest_str}",
-                        hover_name="Country",
-                        color_continuous_scale="Blues",
-                        title=f"Global Sales Heatmap ({y_newest_str})"
-                    )
-                    fig_map.update_layout(geo=dict(showframe=False, showcoastlines=True, projection_type='equirectangular'))
-                    st.plotly_chart(fig_map, use_container_width=True)
-
-            st.divider()
+        
             st.markdown("### Net Value Comparison")
             
             chart_data_rows = []
