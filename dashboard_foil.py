@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import hashlib
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, getcontext
 
 # ===== PERFECT ENGINE INTEGRATION =====
@@ -90,6 +89,7 @@ SHORT_MONTHS = {
 }
 
 # ================= FLAT UI COLORS - SPANISH PALETTE =================
+# Z palety usunięto zbyt jasny 'Swan White' (#f7f1e3), aby wykresy były wyraźne.
 SPANISH_PALETTE = [
     "#40407a", "#706fd3", "#34ace0", "#33d9b2", "#2c2c54",
     "#474787", "#aaa69d", "#227093", "#218c74", "#ff5252",
@@ -220,146 +220,6 @@ def extract_year_from_header(col_name: str) -> str:
     if digits:
         return digits
     return str(col_name)
-
-# ================= SERVER-SIDE PNG GENERATION & EXPORT =================
-def generate_section_png_bytes(title: str, df: pd.DataFrame, pie_infos: list = None, color_map: dict = None) -> bytes:
-    """Generuje kompletny układ sekcji (wykresy kołowe na górze, rozwinięta tabela na dole) do formatu PNG."""
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    
-    num_rows = len(df) if df is not None else 0
-    fig_height = 180 + min(max(num_rows, 2), 150) * 28 
-    
-    has_pies = pie_infos is not None and len(pie_infos) > 0
-    cols = len(pie_infos) if has_pies else 1
-    
-    if has_pies:
-        fig_height += 350
-        specs = [
-            [{"type": "domain"} for _ in range(cols)],
-            [{"type": "table", "colspan": cols}] + [None]*(cols-1)
-        ]
-        subplot_titles = [p.get("title", "") for p in pie_infos]
-        fig = make_subplots(rows=2, cols=cols, specs=specs, vertical_spacing=0.08, subplot_titles=subplot_titles)
-    else:
-        specs = [[{"type": "table"}]]
-        fig = make_subplots(rows=1, cols=1, specs=specs)
-        
-    if has_pies:
-        for i, p_info in enumerate(pie_infos):
-            p_df = p_info["df"]
-            names_col = p_info["names"]
-            values_col = p_info["values"]
-            
-            marker_colors = None
-            if color_map and names_col in p_df.columns:
-                marker_colors = [color_map.get(str(val), "#808080") for val in p_df[names_col]]
-                
-            fig.add_trace(
-                go.Pie(
-                    labels=p_df[names_col].astype(str),
-                    values=p_df[values_col],
-                    marker=dict(colors=marker_colors) if marker_colors else None,
-                    textinfo='percent+label',
-                    showlegend=False
-                ),
-                row=1, col=i+1
-            )
-            
-    if df is not None and not df.empty:
-        header_values = [f"<b>{col}</b>" for col in df.columns]
-        
-        cell_values = []
-        for col in df.columns:
-            cell_values.append(df[col].astype(str).tolist())
-            
-        col_widths = []
-        for col in df.columns:
-            col_str = str(col).lower()
-            if "desc" in col_str or "description" in col_str:
-                col_widths.append(250)
-            elif "customer" in col_str or "country" in col_str or "brand" in col_str or "cat" in col_str:
-                col_widths.append(150)
-            elif "code" in col_str:
-                col_widths.append(100)
-            else:
-                col_widths.append(90)
-                
-        table_trace = go.Table(
-            header=dict(
-                values=header_values,
-                fill_color='#2c2c54',
-                font=dict(color='white', size=13, family="Arial"),
-                align='left',
-                height=32
-            ),
-            cells=dict(
-                values=cell_values,
-                fill_color='#f8f9fa',
-                font=dict(color='#2d3436', size=12, family="Arial"),
-                align='left',
-                height=26
-            ),
-            columnwidth=col_widths
-        )
-        
-        if has_pies:
-            fig.add_trace(table_trace, row=2, col=1)
-        else:
-            fig.add_trace(table_trace, row=1, col=1)
-            
-    fig.update_layout(
-        title=dict(text=title, font=dict(size=22, color='#2c2c54', family="Arial"), x=0.5, xanchor='center'),
-        height=fig_height,
-        width=1100,
-        margin=dict(l=30, r=30, t=100, b=30),
-        paper_bgcolor='white',
-        plot_bgcolor='white'
-    )
-    
-    # Bezpieczna aktualizacja czcionek we wszystkich adnotacjach zapobiegająca wystąpieniu AttributeError
-    fig.update_annotations(font=dict(size=15, color='#2c2c54', family="Arial"))
-        
-    try:
-        return fig.to_image(format="png", engine="kaleido")
-    except Exception as e:
-        st.error("⚠️ PNG export error. Please ensure 'kaleido' package is installed (`pip install kaleido`).")
-        return None
-
-def get_data_signature(title: str, df: pd.DataFrame) -> str:
-    """Tworzy stabilny identyfikator układu danych, by zapobiec pobieraniu starych wersji po zmianie filtrów."""
-    if df is None or df.empty:
-        return hashlib.md5(title.encode()).hexdigest()
-    s = f"{title}_{df.shape}_{list(df.columns)}_{list(df.iloc[0]) if not df.empty else ''}_{list(df.iloc[-1]) if not df.empty else ''}"
-    return hashlib.md5(s.encode('utf-8', errors='ignore')).hexdigest()
-
-def section_header_with_png_export(title: str, df_export: pd.DataFrame = None, pie_infos: list = None, key: str = None, color_map: dict = None):
-    """Renderuje nagłówek sekcji z powiązanym dynamicznym przyciskiem generowania kompletnego pliku PNG."""
-    c1, c2 = st.columns([8, 2])
-    with c1:
-        st.markdown(f"### {title}")
-    with c2:
-        if df_export is not None and not df_export.empty:
-            base_key = key or f"export_{title.replace(' ', '_').lower()}"
-            sig = get_data_signature(title, df_export)
-            state_key = f"png_data_{base_key}_{sig}"
-            
-            if state_key not in st.session_state:
-                if st.button("📥 Download Section as PNG", key=f"btn_{base_key}_{sig}", use_container_width=True):
-                    with st.spinner("Rendering PNG image..."):
-                        img_bytes = generate_section_png_bytes(title, df_export, pie_infos, color_map)
-                        if img_bytes:
-                            st.session_state[state_key] = img_bytes
-                            st.rerun()
-            else:
-                st.download_button(
-                    label="💾 Confirm Save PNG",
-                    data=st.session_state[state_key],
-                    file_name=f"{title.replace(' ', '_').lower()}.png",
-                    mime="image/png",
-                    key=f"dl_{base_key}_{sig}",
-                    use_container_width=True
-                )
 
 # ================= DATA LOADING FOR SINGLE-YEAR FILES =================
 def load_single_year_file(file, label: str):
@@ -633,6 +493,8 @@ def render_two_year_dashboard(
 
     # CATEGORY PERFORMANCE
     if category_filter == "All Categories":
+        st.markdown("### Category Performance")
+
         cat_new = (
             df_new.groupby(cat_col)
             .agg({net_new: sum_decimal})
@@ -653,29 +515,15 @@ def render_two_year_dashboard(
 
         cat = sort_by_col_desc(cat, f"Net {year_new}")
 
-        cat_display = cat.copy()
-        cat_display[f"Net {year_old}"] = cat_display.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
-        cat_display[f"Net {year_new}"] = cat_display.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
-        cat_display["YoY (%)"] = cat_display.get(f"YoY {year_new} vs {year_old}", pd.Series(dtype=str)).apply(yoy_label)
-        
         plot_cat = cat.copy()
-        plot_cat[f"Net {year_new}"] = plot_cat.get(f"Net {year_new}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
-        plot_cat[f"Net {year_old}"] = plot_cat.get(f"Net {year_old}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
+        plot_cat[f"Net {year_new}"] = plot_cat.get(f"Net {year_new}", pd.Series(dtype=float)).apply(
+            lambda v: float(clean_number(v))
+        )
+        plot_cat[f"Net {year_old}"] = plot_cat.get(f"Net {year_old}", pd.Series(dtype=float)).apply(
+            lambda v: float(clean_number(v))
+        )
         plot_cat.loc[plot_cat[f"Net {year_new}"] < 0, f"Net {year_new}"] = 0
         plot_cat.loc[plot_cat[f"Net {year_old}"] < 0, f"Net {year_old}"] = 0
-
-        pie_infos = [
-            {"df": plot_cat, "names": cat_col, "values": f"Net {year_old}", "title": f"Category Pie {year_old}"},
-            {"df": plot_cat, "names": cat_col, "values": f"Net {year_new}", "title": f"Category Pie {year_new}"}
-        ]
-
-        section_header_with_png_export(
-            "Category Performance", 
-            cat_display[[cat_col, f"Net {year_old}", f"Net {year_new}", "YoY (%)"]],
-            pie_infos=pie_infos,
-            key=f"{unique_prefix}_export_cat",
-            color_map=color_map
-        )
 
         pc1, pc2 = st.columns(2)
         with pc1:
@@ -693,10 +541,29 @@ def render_two_year_dashboard(
                 key=f"{unique_prefix}_cat_pie_{year_new}"
             )
 
-        st.dataframe(add_index(cat_display[[cat_col, f"Net {year_old}", f"Net {year_new}", "YoY (%)"]]))
+        cat_display = cat.copy()
+        cat_display[f"Net {year_old}"] = cat_display.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
+        cat_display[f"Net {year_new}"] = cat_display.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
+        cat_display["YoY (%)"] = cat_display.get(f"YoY {year_new} vs {year_old}", pd.Series(dtype=str)).apply(yoy_label)
+        
+        st.dataframe(
+            add_index(
+                cat_display[
+                    [
+                        cat_col,
+                        f"Net {year_old}",
+                        f"Net {year_new}",
+                        "YoY (%)",
+                    ]
+                ]
+            )
+        )
+
         st.divider()
 
     # BRAND PERFORMANCE
+    st.markdown("### Brand Performance")
+
     brand_new = (
         df_new.groupby(brand_col)
         .agg({net_new: sum_decimal})
@@ -717,29 +584,15 @@ def render_two_year_dashboard(
 
     brand = sort_by_col_desc(brand, f"Net {year_new}")
 
-    brand_display = brand.copy()
-    brand_display[f"Net {year_old}"] = brand_display.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
-    brand_display[f"Net {year_new}"] = brand_display.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
-    brand_display["YoY (%)"] = brand_display.get(f"YoY {year_new} vs {year_old}", pd.Series(dtype=str)).apply(yoy_label)
-    
     bplot = brand.copy()
-    bplot[f"Net {year_old}"] = bplot.get(f"Net {year_old}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
-    bplot[f"Net {year_new}"] = bplot.get(f"Net {year_new}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
+    bplot[f"Net {year_old}"] = bplot.get(f"Net {year_old}", pd.Series(dtype=float)).apply(
+        lambda v: float(clean_number(v))
+    )
+    bplot[f"Net {year_new}"] = bplot.get(f"Net {year_new}", pd.Series(dtype=float)).apply(
+        lambda v: float(clean_number(v))
+    )
     bplot.loc[bplot[f"Net {year_old}"] < 0, f"Net {year_old}"] = 0
     bplot.loc[bplot[f"Net {year_new}"] < 0, f"Net {year_new}"] = 0
-
-    pie_infos_brand = [
-        {"df": bplot, "names": brand_col, "values": f"Net {year_old}", "title": f"Brand Pie {year_old}"},
-        {"df": bplot, "names": brand_col, "values": f"Net {year_new}", "title": f"Brand Pie {year_new}"}
-    ]
-
-    section_header_with_png_export(
-        "Brand Performance", 
-        brand_display[[brand_col, f"Net {year_old}", f"Net {year_new}", "YoY (%)"]],
-        pie_infos=pie_infos_brand,
-        key=f"{unique_prefix}_export_brand",
-        color_map=color_map
-    )
 
     bc1, bc2 = st.columns(2)
     with bc1:
@@ -757,11 +610,29 @@ def render_two_year_dashboard(
             key=f"{unique_prefix}_brand_pie_{year_new}"
         )
 
-    st.dataframe(add_index(brand_display[[brand_col, f"Net {year_old}", f"Net {year_new}", "YoY (%)"]]))
+    brand_display = brand.copy()
+    brand_display[f"Net {year_old}"] = brand_display.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
+    brand_display[f"Net {year_new}"] = brand_display.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
+    brand_display["YoY (%)"] = brand_display.get(f"YoY {year_new} vs {year_old}", pd.Series(dtype=str)).apply(yoy_label)
+    
+    st.dataframe(
+        add_index(
+            brand_display[
+                [
+                    brand_col,
+                    f"Net {year_old}",
+                    f"Net {year_new}",
+                    "YoY (%)",
+                ]
+            ]
+        )
+    )
+
     st.divider()
 
     # TOP PRODUCTS
     st.markdown("### Top Products")
+
     if df_new.empty and df_old.empty:
         st.info("No data for selected filters.")
     else:
@@ -804,7 +675,9 @@ def render_two_year_dashboard(
                     )
                 )
                 try:
-                    share_top = sum_decimal(top_old[net_old]) / total_old_val * Decimal('100')
+                    share_top = (
+                        sum_decimal(top_old[net_old]) / total_old_val * Decimal('100')
+                    )
                 except (InvalidOperation, Exception):
                     share_top = Decimal('0')
                 st.write(f"Top 10 share: {format_number_plain(share_top)}%")
@@ -843,7 +716,9 @@ def render_two_year_dashboard(
                     )
                 )
                 try:
-                    share_top_n = sum_decimal(top_new[net_new]) / total_new_val * Decimal('100')
+                    share_top_n = (
+                        sum_decimal(top_new[net_new]) / total_new_val * Decimal('100')
+                    )
                 except (InvalidOperation, Exception):
                     share_top_n = Decimal('0')
                 st.write(f"Top 10 share: {format_number_plain(share_top_n)}%")
@@ -942,7 +817,8 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # L4L TABLE
+    # L4L TABLE (Group strictly by Code to prevent split rows)
+    st.markdown("### L4L Table")
     yoy_df_new = (
         df_new.groupby(code_col)
         .agg({desc_col: "first", net_new: sum_decimal, qty_new: sum_decimal})
@@ -969,20 +845,27 @@ def render_two_year_dashboard(
     yoy_disp[qty_new] = yoy_disp.get(qty_new, pd.Series(dtype=int)).apply(to_display_num)
     yoy_disp["YoY (%)"] = yoy_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
 
-    export_l4l_cols = [code_col, desc_col, net_old, net_new, qty_old, qty_new, "YoY (%)"]
-    section_header_with_png_export(
-        "L4L Table", 
-        yoy_disp[export_l4l_cols], 
-        pie_infos=None,
-        key=f"{unique_prefix}_export_l4l",
-        color_map=color_map
+    st.dataframe(
+        add_index(
+            yoy_disp[
+                [
+                    code_col,
+                    desc_col,
+                    net_old,
+                    net_new,
+                    qty_old,
+                    qty_new,
+                    "YoY (%)",
+                ]
+            ]
+        )
     )
-    st.dataframe(add_index(yoy_disp[export_l4l_cols]))
+
     st.divider()
 
-    # AUTO INSIGHTS FOR 2 YEARS
+    # AUTO INSIGHTS (TOP 5, GROWTH, DECLINE) FOR 2 YEARS
     is_cat_all = (category_filter == "All Categories")
-    ins_title = "Auto Insights (Category Focus)" if is_cat_all else f"Auto Insights (SKU Focus - {category_filter})"
+    st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {category_filter})")
     
     if is_cat_all:
         cat_new_ins = df_new.groupby(cat_col).agg({net_new: sum_decimal}).reset_index()
@@ -1010,20 +893,6 @@ def render_two_year_dashboard(
     ) if not cat_ins.empty else []
     
     cat_ins = sort_by_col_desc(cat_ins, "Change_Raw")
-
-    export_ins_df = cat_ins.copy()
-    export_ins_df[f"Net {year_old}"] = export_ins_df.get(f"Net {year_old}", pd.Series(dtype=int)).apply(to_display_num)
-    export_ins_df[f"Net {year_new}"] = export_ins_df.get(f"Net {year_new}", pd.Series(dtype=int)).apply(to_display_num)
-    export_ins_df[f"Change {year_new} vs {year_old}"] = export_ins_df["Change_Raw"].apply(to_display_num)
-    export_ins_df["YoY (%)"] = export_ins_df.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
-    
-    section_header_with_png_export(
-        ins_title, 
-        export_ins_df[disp_prefix + [f"Net {year_old}", f"Net {year_new}", f"Change {year_new} vs {year_old}", "YoY (%)"]],
-        pie_infos=None,
-        key=f"{unique_prefix}_export_insights",
-        color_map=color_map
-    )
 
     st.write("#### Top 5 " + ("Categories" if is_cat_all else "SKUs"))
     ic1, ic2 = st.columns(2)
@@ -1063,9 +932,10 @@ def render_two_year_dashboard(
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(add_index(d_disp[disp_prefix + [f"Net {year_old}", f"Net {year_new}", f"Change {year_new} vs {year_old}", "YoY (%)"]]))
 
+
     st.divider()
 
-    # CUSTOMER IMPACT
+    # CUSTOMER IMPACT (RESTORED SECTION)
     st.markdown("### Customer Impact (Growth vs Decline)")
 
     all_categories = sorted(
@@ -1139,7 +1009,15 @@ def render_two_year_dashboard(
         g_disp["YoY (%)"] = g_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(
             add_index(
-                g_disp[[cust_col, f"Net {year_old}", f"Net {year_new}", "Change Value", "YoY (%)"]]
+                g_disp[
+                    [
+                        cust_col,
+                        f"Net {year_old}",
+                        f"Net {year_new}",
+                        "Change Value",
+                        "YoY (%)",
+                    ]
+                ]
             )
         )
 
@@ -1159,7 +1037,15 @@ def render_two_year_dashboard(
         d_disp["YoY (%)"] = d_disp.get("YoY", pd.Series(dtype=str)).apply(yoy_label)
         st.dataframe(
             add_index(
-                d_disp[[cust_col, f"Net {year_old}", f"Net {year_new}", "Change Value", "YoY (%)"]]
+                d_disp[
+                    [
+                        cust_col,
+                        f"Net {year_old}",
+                        f"Net {year_new}",
+                        "Change Value",
+                        "YoY (%)",
+                    ]
+                ]
             )
         )
 
@@ -1194,6 +1080,7 @@ def render_single_year_dashboard(
 
     # CATEGORY PERFORMANCE
     if category_filter == "All Categories":
+        st.markdown("### Category Performance")
         cat = (
             df.groupby(cat_col)
             .agg({net_col: sum_decimal})
@@ -1201,23 +1088,9 @@ def render_single_year_dashboard(
             .rename(columns={net_col: f"Net {year_name}"})
         )
         cat = sort_by_col_desc(cat, f"Net {year_name}")
-        
-        cat_disp = cat.copy()
-        cat_disp[f"Net {year_name}"] = cat_disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
-        
         plot_cat = cat.copy()
-        plot_cat[f"Net {year_name}"] = plot_cat.get(f"Net {year_name}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
-
-        pie_infos_cat = [
-            {"df": plot_cat, "names": cat_col, "values": f"Net {year_name}", "title": f"Category Pie {year_name}"}
-        ]
-
-        section_header_with_png_export(
-            "Category Performance", 
-            cat_disp[[cat_col, f"Net {year_name}"]],
-            pie_infos=pie_infos_cat,
-            key=f"{unique_prefix}_export_cat",
-            color_map=color_map
+        plot_cat[f"Net {year_name}"] = plot_cat.get(f"Net {year_name}", pd.Series(dtype=float)).apply(
+            lambda v: float(clean_number(v))
         )
 
         st.markdown(f"#### Category Pie {year_name}")
@@ -1227,10 +1100,14 @@ def render_single_year_dashboard(
             key=f"{unique_prefix}_cat_pie_{year_name}"
         )
 
+        cat_disp = cat.copy()
+        cat_disp[f"Net {year_name}"] = cat_disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
         st.dataframe(add_index(cat_disp[[cat_col, f"Net {year_name}"]]))
+
         st.divider()
 
     # BRAND PERFORMANCE
+    st.markdown("### Brand Performance")
     brand = (
         df.groupby(brand_col)
         .agg({net_col: sum_decimal})
@@ -1238,23 +1115,9 @@ def render_single_year_dashboard(
         .rename(columns={net_col: f"Net {year_name}"})
     )
     brand = sort_by_col_desc(brand, f"Net {year_name}")
-    
-    brand_disp = brand.copy()
-    brand_disp[f"Net {year_name}"] = brand_disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
-    
     bplot = brand.copy()
-    bplot[f"Net {year_name}"] = bplot.get(f"Net {year_name}", pd.Series(dtype=float)).apply(lambda v: float(clean_number(v)))
-
-    pie_infos_brand = [
-        {"df": bplot, "names": brand_col, "values": f"Net {year_name}", "title": f"Brand Pie {year_name}"}
-    ]
-
-    section_header_with_png_export(
-        "Brand Performance", 
-        brand_disp[[brand_col, f"Net {year_name}"]],
-        pie_infos=pie_infos_brand,
-        key=f"{unique_prefix}_export_brand",
-        color_map=color_map
+    bplot[f"Net {year_name}"] = bplot.get(f"Net {year_name}", pd.Series(dtype=float)).apply(
+        lambda v: float(clean_number(v))
     )
 
     st.markdown(f"#### Brand Pie {year_name}")
@@ -1264,7 +1127,10 @@ def render_single_year_dashboard(
         key=f"{unique_prefix}_brand_pie_{year_name}"
     )
 
+    brand_disp = brand.copy()
+    brand_disp[f"Net {year_name}"] = brand_disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
     st.dataframe(add_index(brand_disp[[brand_col, f"Net {year_name}"]]))
+
     st.divider()
 
     # TOP PRODUCTS
@@ -1371,7 +1237,7 @@ def render_single_year_dashboard(
 
     st.divider()
 
-    # AUTO INSIGHTS
+    # AUTO INSIGHTS (Top 5 Categories)
     if category_filter == "All Categories":
         st.markdown("### Auto Insights")
         cat_ins = (
@@ -1404,6 +1270,7 @@ def update_cached_file(file_obj, state_key, label):
         st.session_state[state_key] = load_single_year_file(file_obj, label)
         st.session_state[f"{state_key}_id"] = file_obj.file_id
         
+        # Czyszczenie kluczy filtrów miesięcy żeby zapobiec "State Stickiness"
         keys_to_del = [k for k in st.session_state.keys() if "_months_" in k]
         for k in keys_to_del:
             del st.session_state[k]
@@ -1416,16 +1283,18 @@ col_title, col_reset = st.columns([8, 2])
 with col_title:
     st.markdown("### Excel Upload (3 separate years)")
 with col_reset:
-    st.write("") 
+    st.write("") # spacer
     if st.button("🗑️ Reset All Data", use_container_width=True):
         for key in ['data_older', 'data_prev', 'data_curr']:
             st.session_state[key] = (None, None, None)
             st.session_state[f"{key}_id"] = None
         
-        keys_to_del = [k for k in st.session_state.keys() if "_months" in k or "last_hm_str" in k or "png_data_" in k]
+        # Wymuszone czyszczenie całej pamięci podręcznej filtrów
+        keys_to_del = [k for k in st.session_state.keys() if "_months" in k or "last_hm_str" in k]
         for k in keys_to_del: 
             del st.session_state[k]
             
+        # Unikalny klucz uploaderów - zmusza je do "oczyszczenia" interfejsu
         st.session_state['file_uploader_key'] += 1
         st.rerun()
 
@@ -1487,7 +1356,7 @@ if len(all_loaded_dfs_for_colors) > 0:
 
 st.divider()
 
-# TABS DECLARATION
+# TABS DECLARATION (EXACTLY ONCE)
 tab_overview, tab_l4l, tab_full, tab_customer, tab_category, tab_country, tab_brand, tab_churn, tab_dead_stock = st.tabs([
     "📈 Overview", "📅 Detailed L4L", "📊 Full Year Analysis", "👥 Customer Review", "📁 Category Review", "🌍 Country Review", "🏷️ Brand Review", "⚠️ Churn & Acquisition", "📦 Dead Stock"
 ])
@@ -1505,6 +1374,7 @@ if hierarchy_df is not None:
     hm_raw = hierarchy_df[hierarchy_cols["Month"]].dropna().unique().tolist()
     hierarchy_months = sorted([m for m in hm_raw if m in MONTHS_ORDER], key=lambda x: MONTHS_ORDER.index(x))
 
+# Główne rozwiązanie problemu ze "State Stickiness"
 hm_sig = "".join([m[:3] for m in hierarchy_months]) if hierarchy_months else "default"
 
 if st.session_state.get('last_hm_str') != hm_sig:
@@ -1548,6 +1418,7 @@ with tab_overview:
         df_old2_f = filtered_dfs[-1] if df_old2 is not None else None
 
         st.divider()
+        st.markdown("### Net Value Comparison (Global Filters Applied)")
         vals, years = [], []
         for df_f, y, c in zip([df_old2_f, df_prev_f, df_curr_f], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if df_f is not None: 
@@ -1555,17 +1426,11 @@ with tab_overview:
                 years.append(y)
         if vals: 
             chart_df = pd.DataFrame({"Year": years, "Net (EUR)": vals}).sort_values("Year")
-            section_header_with_png_export(
-                "Net Value Comparison (Global Filters Applied)", 
-                chart_df, 
-                pie_infos=None,
-                key="ov_export_net",
-                color_map=GLOBAL_COLOR_MAP
-            )
             st.plotly_chart(px.bar(chart_df, x="Year", y="Net (EUR)", text="Net (EUR)", title="Net Value YTD", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
         def render_3y_analysis(group_col, title, dfs, year_list, cols_list, display_name):
             st.divider()
+            st.markdown(f"### {title}")
             g_dfs = []
             for df, y, c in zip(dfs, year_list, cols_list):
                 if df is not None:
@@ -1583,6 +1448,17 @@ with tab_overview:
                     master[f"YoY {y_newest} vs {g_dfs_c[-2][1]}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {g_dfs_c[-2][1]}", 0)), axis=1) if not master.empty else []
                 master = sort_by_col_desc(master, f"Net {y_newest}")
 
+                pie_cols = st.columns(len(g_dfs_c))
+                for i, (g, y) in enumerate(g_dfs_c):
+                    plot_df = master.copy()
+                    plot_df[f"Net {y}"] = plot_df.get(f"Net {y}").apply(lambda v: max(0, float(clean_number(v))))
+                    tot = plot_df[f"Net {y}"].sum()
+                    if tot > 0:
+                        plot_df.loc[plot_df[f"Net {y}"] / tot < 0.005, group_col] = 'Other'
+                        plot_df = plot_df.groupby(group_col, as_index=False)[[f"Net {y}"]].sum()
+                    with pie_cols[i]: 
+                        st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} {y}", color=group_col, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+                
                 disp = master.copy()
                 for _, y in g_dfs_c: 
                     disp[f"Net {y}"] = disp.get(f"Net {y}").apply(to_display_num)
@@ -1591,36 +1467,6 @@ with tab_overview:
                 
                 disp = disp.rename(columns={group_col: display_name})
                 cols_order = [display_name] + [f"Net {y}" for _,y in g_dfs_c] + ([f"YoY {y_newest} vs {g_dfs_c[-2][1]} (%)"] if len(g_dfs_c)>=2 else [])
-                
-                pie_infos = []
-                for i, (g, y) in enumerate(g_dfs_c):
-                    plot_df = master.copy()
-                    plot_df[f"Net {y}"] = plot_df.get(f"Net {y}").apply(lambda v: max(0, float(clean_number(v))))
-                    tot = plot_df[f"Net {y}"].sum()
-                    if tot > 0:
-                        plot_df.loc[plot_df[f"Net {y}"] / tot < 0.005, group_col] = 'Other'
-                        plot_df = plot_df.groupby(group_col, as_index=False)[[f"Net {y}"]].sum()
-                    pie_infos.append({
-                        "df": plot_df,
-                        "names": group_col,
-                        "values": f"Net {y}",
-                        "title": f"{display_name} {y}"
-                    })
-                
-                section_header_with_png_export(
-                    title, 
-                    disp[cols_order], 
-                    pie_infos=pie_infos,
-                    key=f"ov_export_{title.replace(' ', '_').lower()}",
-                    color_map=GLOBAL_COLOR_MAP
-                )
-
-                pie_cols = st.columns(len(g_dfs_c))
-                for i, (g, y) in enumerate(g_dfs_c):
-                    p_info = pie_infos[i]
-                    with pie_cols[i]: 
-                        st.plotly_chart(px.pie(p_info["df"], names=group_col, values=f"Net {y}", title=p_info["title"], color=group_col, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
-                
                 st.dataframe(add_index(disp[cols_order]), use_container_width=True)
 
         dfs_cat = []
@@ -1641,13 +1487,13 @@ with tab_overview:
 
         st.divider()
         is_cat_all = (meta["category"] == "All Categories")
-        ins_ov_title = "Auto Insights (Category Focus)" if is_cat_all else f"Auto Insights (SKU Focus - {meta['category']})"
+        st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta['category']})")
         
         ins_dfs_ov = []
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
-                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta["country"]]
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
                 if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
                 if not is_cat_all: d_f = d_f[d_f[c["Cat"]] == meta["category"]]
                 if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
@@ -1694,14 +1540,6 @@ with tab_overview:
                 master_ins_ov[f"Change {y_newest} vs {y1}"] = master_ins_ov["Change_1_Raw"].apply(to_display_num)
                 master_ins_ov[f"YoY {y_newest} vs {y1} (%)"] = master_ins_ov["YoY_1"].apply(yoy_label)
                 display_cols = disp_prefix + [f"Net {y}" for y in ov_years] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
-                
-                section_header_with_png_export(
-                    ins_ov_title, 
-                    master_ins_ov[display_cols], 
-                    pie_infos=None,
-                    key="ov_export_ins",
-                    color_map=GLOBAL_COLOR_MAP
-                )
 
             c1, c2 = st.columns(2)
             with c1:
@@ -1816,19 +1654,6 @@ with tab_full:
             color_map=GLOBAL_COLOR_MAP
         )
 
-def get_filtered_cr_dfs(m_dict):
-    v_dfs = []
-    for d_f, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
-        if d_f is not None:
-            tmp = d_f.copy()
-            if m_dict.get("country") and m_dict["country"] != "All Countries": tmp = tmp[tmp[c["Country"]] == m_dict["country"]]
-            if m_dict.get("customer") and m_dict["customer"] != "All Customers": tmp = tmp[tmp[c["Customer"]] == m_dict["customer"]]
-            if m_dict.get("category") and m_dict["category"] != "All Categories": tmp = tmp[tmp[c["Cat"]] == m_dict["category"]]
-            if m_dict.get("brand") and m_dict["brand"] != "All Brands": tmp = tmp[tmp[c["Brand"]] == m_dict["brand"]]
-            if m_dict.get("months"): tmp = tmp[tmp[c["Month"]].isin(m_dict["months"])]
-            if not tmp.empty: v_dfs.append((tmp, str(y), c))
-    return sorted(v_dfs, key=lambda x: x[1])
-
 # ================= TAB: CUSTOMER REVIEW =================
 with tab_customer:
     st.header("👥 Customer Review")
@@ -1912,6 +1737,8 @@ with tab_customer:
             avg_divisor = st.slider("Select number of months for ∑ and AVG calculation (e.g. 3 = Jan, Feb, Mar):", min_value=1, max_value=12, value=default_divisor, step=1, key="cr_slider")
 
             def render_monthly_table(mode="Net"):
+                st.markdown(f"### {mode} Value Monthly Comparison")
+                
                 col_key = "Net" if mode == "Net" else "Qty"
                 sum_col_key = f"∑ (for {avg_divisor} months)"
                 avg_col_key = "Avg Month"
@@ -1963,13 +1790,6 @@ with tab_customer:
                     display_rows.append(row_yoy)
 
                 df_disp = pd.DataFrame(display_rows)
-                section_header_with_png_export(
-                    f"{mode} Value Monthly Comparison", 
-                    df_disp, 
-                    pie_infos=None,
-                    key=f"cr_export_monthly_{mode.lower()}",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 styled_df = style_monthly_table(df_disp)
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
@@ -1978,6 +1798,7 @@ with tab_customer:
             render_monthly_table("Qty")
 
             st.divider()
+            st.markdown("### Net Value Comparison")
             chart_vals = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
                 if orig_d is not None:
@@ -1991,18 +1812,12 @@ with tab_customer:
                         chart_vals.append({"Year": str(y), "Net": float(sum_decimal(d_f[c["Net"]]))})
             
             if chart_vals:
-                chart_cr_df = pd.DataFrame(chart_vals).sort_values("Year")
-                section_header_with_png_export(
-                    "Net Value Comparison", 
-                    chart_cr_df, 
-                    pie_infos=None,
-                    key="cr_export_net",
-                    color_map=GLOBAL_COLOR_MAP
-                )
-                st.plotly_chart(px.bar(chart_cr_df, x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+                st.plotly_chart(px.bar(pd.DataFrame(chart_vals).sort_values("Year"), x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             def render_cr_sub_analysis(group_col_key, section_title, display_name):
                 st.divider()
+                st.markdown(f"### {section_title}")
+                
                 group_dfs = []
                 for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
                     if orig_d is not None:
@@ -2032,6 +1847,20 @@ with tab_customer:
 
                     master = sort_by_col_desc(master, f"Net {y_newest}")
 
+                    pie_cols = st.columns(len(group_dfs_chrono))
+                    for i, (g, y, _) in enumerate(group_dfs_chrono):
+                        plot_df = master.copy()
+                        plot_df[f"Net {y}"] = plot_df.get(f"Net {y}", pd.Series(dtype=float)).apply(lambda v: max(0, float(clean_number(v))))
+                        
+                        total_net = plot_df[f"Net {y}"].sum()
+                        if total_net > 0:
+                            plot_df['Share'] = plot_df[f"Net {y}"] / total_net
+                            plot_df.loc[plot_df['Share'] < 0.005, g_col_name] = 'Other'
+                            plot_df = plot_df.groupby(g_col_name, as_index=False)[[f"Net {y}"]].sum()
+
+                        with pie_cols[i]:
+                            st.plotly_chart(px.pie(plot_df, names=g_col_name, values=f"Net {y}", title=f"{display_name} Pie {y}", color=g_col_name, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+
                     display_df = master.copy()
                     for _, y, _ in group_dfs_chrono:
                         display_df[f"Net {y}"] = display_df.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
@@ -2049,36 +1878,6 @@ with tab_customer:
                     if len(group_dfs_chrono) >= 2:
                         cols_order.append(f"YoY {y_newest} vs {group_dfs_chrono[-2][1]} (%)")
                         
-                    pie_infos = []
-                    for i, (g, y, _) in enumerate(group_dfs_chrono):
-                        plot_df = master.copy()
-                        plot_df[f"Net {y}"] = plot_df.get(f"Net {y}", pd.Series(dtype=float)).apply(lambda v: max(0, float(clean_number(v))))
-                        total_net = plot_df[f"Net {y}"].sum()
-                        if total_net > 0:
-                            plot_df['Share'] = plot_df[f"Net {y}"] / total_net
-                            plot_df.loc[plot_df['Share'] < 0.005, g_col_name] = 'Other'
-                            plot_df = plot_df.groupby(g_col_name, as_index=False)[[f"Net {y}"]].sum()
-                        pie_infos.append({
-                            "df": plot_df,
-                            "names": g_col_name,
-                            "values": f"Net {y}",
-                            "title": f"{display_name} Pie {y}"
-                        })
-
-                    section_header_with_png_export(
-                        section_title, 
-                        display_df[cols_order], 
-                        pie_infos=pie_infos,
-                        key=f"cr_export_{section_title.replace(' ', '_').lower()}",
-                        color_map=GLOBAL_COLOR_MAP
-                    )
-
-                    pie_cols = st.columns(len(group_dfs_chrono))
-                    for i, (g, y, _) in enumerate(group_dfs_chrono):
-                        p_info = pie_infos[i]
-                        with pie_cols[i]:
-                            st.plotly_chart(px.pie(p_info["df"], names=g_col_name, values=f"Net {y}", title=p_info["title"], color=g_col_name, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
-
                     st.dataframe(add_index(display_df[cols_order]), use_container_width=True)
 
             if meta_cr["category"] == "All Categories":
@@ -2086,6 +1885,8 @@ with tab_customer:
             render_cr_sub_analysis("Brand", "Brand Comparison", "Brand")
 
             st.divider()
+            st.markdown("### L4L Table (SKU Level)")
+            
             l4l_dfs = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
                 if orig_d is not None:
@@ -2136,18 +1937,11 @@ with tab_customer:
                 display_cols[0] = "Code"
                 display_cols[1] = "Description"
                 
-                section_header_with_png_export(
-                    "L4L Table (SKU Level)", 
-                    master_l4l[display_cols], 
-                    pie_infos=None,
-                    key="cr_export_l4l",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 st.dataframe(add_index(master_l4l[display_cols]), use_container_width=True)
 
             st.divider()
             is_cat_all = (meta_cr["category"] == "All Categories")
-            ins_cr_title = "Auto Insights (Category Focus)" if is_cat_all else f"Auto Insights (SKU Focus - {meta_cr['category']})"
+            st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta_cr['category']})")
             
             ins_dfs = []
             for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
@@ -2200,14 +1994,6 @@ with tab_customer:
                     master_ins[f"Change {y_newest} vs {y1}"] = master_ins["Change_1_Raw"].apply(to_display_num)
                     master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_1"].apply(yoy_label)
                     display_cols = disp_prefix + [f"Net {y}" for y in cr_years] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
-                    
-                    section_header_with_png_export(
-                        ins_cr_title, 
-                        master_ins[display_cols], 
-                        pie_infos=None,
-                        key="cr_export_ins",
-                        color_map=GLOBAL_COLOR_MAP
-                    )
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -2312,6 +2098,7 @@ with tab_category:
             avg_divisor_cat_rev = st.slider("Select number of months for ∑ and AVG calculation:", min_value=1, max_value=12, value=default_divisor_cat_rev, step=1, key="cat_rev_slider")
 
             def render_cat_rev_monthly_table(mode="Net"):
+                st.markdown(f"### {mode} Value Monthly Comparison")
                 col_key = "Net" if mode == "Net" else "Qty"
                 sum_col_key = f"∑ (for {avg_divisor_cat_rev} months)"
                 avg_col_key = "Avg Month"
@@ -2364,13 +2151,6 @@ with tab_category:
                     display_rows.append(row_yoy)
 
                 df_disp = pd.DataFrame(display_rows)
-                section_header_with_png_export(
-                    f"{mode} Value Monthly Comparison", 
-                    df_disp, 
-                    pie_infos=None,
-                    key=f"cat_rev_export_monthly_{mode.lower()}",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 styled_df = style_monthly_table(df_disp)
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
@@ -2379,20 +2159,13 @@ with tab_category:
             render_cat_rev_monthly_table("Qty")
 
             st.divider()
+            st.markdown("### Net Value Comparison")
             chart_vals_cat_rev = []
             for d_f, y, c in cat_rev_valid_dfs_chrono:
                 chart_vals_cat_rev.append({"Year": str(y), "Net": float(sum_decimal(d_f[c["Net"]]))})
             
             if chart_vals_cat_rev:
-                chart_cat_df = pd.DataFrame(chart_vals_cat_rev).sort_values("Year")
-                section_header_with_png_export(
-                    "Net Value Comparison", 
-                    chart_cat_df, 
-                    pie_infos=None,
-                    key="cat_rev_export_net",
-                    color_map=GLOBAL_COLOR_MAP
-                )
-                st.plotly_chart(px.bar(chart_cat_df, x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+                st.plotly_chart(px.bar(pd.DataFrame(chart_vals_cat_rev).sort_values("Year"), x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
             st.markdown("### Market Penetration (Countries & Customers)")
@@ -2429,6 +2202,7 @@ with tab_category:
                     st.plotly_chart(px.pie(g_cust, names=c_latest["Customer"], values=f"Net {y_latest}", color=c_latest["Customer"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
+            st.markdown(f"### Top 10 SKUs for {selected_category_specific}")
             if cat_rev_valid_dfs_chrono:
                 d_latest, y_latest, c_latest = cat_rev_valid_dfs_chrono[-1]
                 sku_df = d_latest.groupby(c_latest["Code"]).agg({c_latest["Desc"]: "first", c_latest["Net"]: sum_decimal, c_latest["Qty"]: sum_decimal}).reset_index()
@@ -2439,15 +2213,7 @@ with tab_category:
                 sku_disp[c_latest["Qty"]] = sku_disp.get(c_latest["Qty"], pd.Series(dtype=int)).apply(to_display_num)
                 sku_disp = sku_disp.rename(columns={c_latest["Code"]: "Code", c_latest["Desc"]: "Description", c_latest["Net"]: f"Net {y_latest}", c_latest["Qty"]: f"Qty {y_latest}"})
                 
-                export_cols_sku = ["Code", "Description", f"Net {y_latest}", f"Qty {y_latest}"]
-                section_header_with_png_export(
-                    f"Top 10 SKUs for {selected_category_specific}", 
-                    sku_disp[export_cols_sku], 
-                    pie_infos=None,
-                    key="cat_rev_export_skus",
-                    color_map=GLOBAL_COLOR_MAP
-                )
-                st.dataframe(add_index(sku_disp[export_cols_sku]), use_container_width=True)
+                st.dataframe(add_index(sku_disp[["Code", "Description", f"Net {y_latest}", f"Qty {y_latest}"]]), use_container_width=True)
 
 # ================= TAB: COUNTRY REVIEW =================
 with tab_country:
@@ -2529,13 +2295,6 @@ with tab_country:
             
             if chart_data_rows:
                 chart_df = pd.DataFrame(chart_data_rows)
-                section_header_with_png_export(
-                    "Net Value Comparison", 
-                    chart_df, 
-                    pie_infos=None,
-                    key="co_export_net",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 country_order = master_co["Country"].tolist()
                 
                 fig = px.bar(
@@ -2554,6 +2313,7 @@ with tab_country:
             else:
                 st.info("No net values to display for selected filters.")
 
+            st.markdown("### Country Performance (L4L)")
             co_years_str = [item[1] for item in co_dfs_grouped]
             display_cols_co = ["Country"]
             
@@ -2570,40 +2330,27 @@ with tab_country:
                 master_co_disp[f"Net {y_str}"] = master_co_disp.get(f"Net {y_str}", pd.Series(dtype=int)).apply(to_display_num)
                 master_co_disp[f"Qty {y_str}"] = master_co_disp.get(f"Qty {y_str}", pd.Series(dtype=int)).apply(to_display_num)
                 
-            pie_infos_co = []
-            for g_df, y_str in co_dfs_grouped:
-                plot_df = master_co.copy()
-                plot_df[f"Net {y_str}"] = plot_df.get(f"Net {y_str}", pd.Series(dtype=float)).apply(lambda v: max(0, float(clean_number(v))))
-                total_net = plot_df[f"Net {y_str}"].sum()
-                if total_net > 0:
-                    plot_df['Share'] = plot_df[f"Net {y_str}"] / total_net
-                    plot_df.loc[plot_df['Share'] < 0.005, "Country"] = 'Other'
-                    plot_df = plot_df.groupby("Country", as_index=False)[[f"Net {y_str}"]].sum()
-                pie_infos_co.append({
-                    "df": plot_df,
-                    "names": "Country",
-                    "values": f"Net {y_str}",
-                    "title": f"Country Share {y_str}"
-                })
-
-            section_header_with_png_export(
-                "Country Performance (L4L)", 
-                master_co_disp[display_cols_co], 
-                pie_infos=pie_infos_co,
-                key="co_export_perf",
-                color_map=GLOBAL_COLOR_MAP
-            )
             st.dataframe(add_index(master_co_disp[display_cols_co]), use_container_width=True)
 
             st.divider()
             st.markdown("### Country Market Share")
             pie_cols_co = st.columns(len(co_dfs_grouped))
             for i, (g, y_str) in enumerate(co_dfs_grouped):
-                p_info = pie_infos_co[i]
+                plot_df = master_co.copy()
+                plot_df[f"Net {y_str}"] = plot_df.get(f"Net {y_str}", pd.Series(dtype=float)).apply(lambda v: max(0, float(clean_number(v))))
+                
+                total_net = plot_df[f"Net {y_str}"].sum()
+                if total_net > 0:
+                    plot_df['Share'] = plot_df[f"Net {y_str}"] / total_net
+                    plot_df.loc[plot_df['Share'] < 0.005, "Country"] = 'Other'
+                    plot_df = plot_df.groupby("Country", as_index=False)[[f"Net {y_str}"]].sum()
+
                 with pie_cols_co[i]:
-                    st.plotly_chart(px.pie(p_info["df"], names="Country", values=f"Net {y_str}", title=p_info["title"], color="Country", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+                    st.plotly_chart(px.pie(plot_df, names="Country", values=f"Net {y_str}", title=f"Country Share {y_str}", color="Country", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
+            st.markdown("### Auto Insights (Country Focus)")
+            
             if len(co_years_str) >= 2:
                 ins_master_co = master_co.copy()
                 y1_str = co_years_str[-2]
@@ -2613,18 +2360,6 @@ with tab_country:
                 
                 disp_prefix_co = ["Country"]
                 display_cols_ins = disp_prefix_co + [f"Net {y}" for y in co_years_str] + [f"Change {y_newest_str} vs {y1_str}", f"YoY {y_newest_str} vs {y1_str} (%)"]
-
-                export_co_ins = ins_master_co.copy()
-                for y_str in co_years_str:
-                    export_co_ins[f"Net {y_str}"] = export_co_ins.get(f"Net {y_str}", pd.Series(dtype=int)).apply(to_display_num)
-                
-                section_header_with_png_export(
-                    "Auto Insights (Country Focus)", 
-                    export_co_ins[display_cols_ins], 
-                    pie_infos=None,
-                    key="co_export_ins",
-                    color_map=GLOBAL_COLOR_MAP
-                )
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -2728,6 +2463,7 @@ with tab_brand:
             avg_divisor_br = st.slider("Select number of months for ∑ and AVG calculation:", min_value=1, max_value=12, value=default_divisor_br, step=1, key="br_slider")
 
             def render_brand_monthly_table(mode="Net"):
+                st.markdown(f"### {mode} Value Monthly Comparison")
                 col_key = "Net" if mode == "Net" else "Qty"
                 sum_col_key = f"∑ (for {avg_divisor_br} months)"
                 avg_col_key = "Avg Month"
@@ -2780,13 +2516,6 @@ with tab_brand:
                     display_rows.append(row_yoy)
 
                 df_disp = pd.DataFrame(display_rows)
-                section_header_with_png_export(
-                    f"{mode} Value Monthly Comparison", 
-                    df_disp, 
-                    pie_infos=None,
-                    key=f"br_export_monthly_{mode.lower()}",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 styled_df = style_monthly_table(df_disp)
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
@@ -2795,20 +2524,13 @@ with tab_brand:
             render_brand_monthly_table("Qty")
 
             st.divider()
+            st.markdown("### Net Value Comparison")
             chart_vals_br = []
             for d_f, y, c in br_valid_dfs_chrono:
                 chart_vals_br.append({"Year": str(y), "Net": float(sum_decimal(d_f[c["Net"]]))})
             
             if chart_vals_br:
-                chart_br_df = pd.DataFrame(chart_vals_br).sort_values("Year")
-                section_header_with_png_export(
-                    "Net Value Comparison", 
-                    chart_br_df, 
-                    pie_infos=None,
-                    key="br_export_net",
-                    color_map=GLOBAL_COLOR_MAP
-                )
-                st.plotly_chart(px.bar(chart_br_df, x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+                st.plotly_chart(px.bar(pd.DataFrame(chart_vals_br).sort_values("Year"), x="Year", y="Net", text="Net", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
             st.markdown("### Market Penetration (Countries & Customers)")
@@ -2845,6 +2567,7 @@ with tab_brand:
                     st.plotly_chart(px.pie(g_cust, names=c_latest["Customer"], values=f"Net {y_latest}", color=c_latest["Customer"], color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
 
             st.divider()
+            st.markdown(f"### Top 10 SKUs for {selected_brand_specific}")
             if br_valid_dfs_chrono:
                 d_latest, y_latest, c_latest = br_valid_dfs_chrono[-1]
                 sku_df = d_latest.groupby(c_latest["Code"]).agg({c_latest["Desc"]: "first", c_latest["Net"]: sum_decimal, c_latest["Qty"]: sum_decimal}).reset_index()
@@ -2855,15 +2578,7 @@ with tab_brand:
                 sku_disp[c_latest["Qty"]] = sku_disp.get(c_latest["Qty"], pd.Series(dtype=int)).apply(to_display_num)
                 sku_disp = sku_disp.rename(columns={c_latest["Code"]: "Code", c_latest["Desc"]: "Description", c_latest["Net"]: f"Net {y_latest}", c_latest["Qty"]: f"Qty {y_latest}"})
                 
-                export_cols_br_sku = ["Code", "Description", f"Net {y_latest}", f"Qty {y_latest}"]
-                section_header_with_png_export(
-                    f"Top 10 SKUs for {selected_brand_specific}", 
-                    sku_disp[export_cols_br_sku], 
-                    pie_infos=None,
-                    key="br_export_skus",
-                    color_map=GLOBAL_COLOR_MAP
-                )
-                st.dataframe(add_index(sku_disp[export_cols_br_sku]), use_container_width=True)
+                st.dataframe(add_index(sku_disp[["Code", "Description", f"Net {y_latest}", f"Qty {y_latest}"]]), use_container_width=True)
 
 # ================= TAB: CUSTOMER CHURN & ACQUISITION =================
 with tab_churn:
@@ -2945,36 +2660,22 @@ with tab_churn:
             col_new, col_lost = st.columns(2)
             
             with col_new:
+                st.markdown(f"#### 🟢 Top 10 New Customers ({y_new})")
                 df_new_cust = df_new_cust.sort_values("Net_New", ascending=False).head(10)
                 disp_new = df_new_cust[["Customer", "Net_New"]].copy()
                 disp_new["Net_New"] = disp_new["Net_New"].apply(to_display_num)
                 disp_new = disp_new.rename(columns={"Net_New": f"Net {y_new} (EUR)"})
-                
-                section_header_with_png_export(
-                    f"🟢 Top 10 New Customers ({y_new})", 
-                    disp_new, 
-                    pie_infos=None,
-                    key="ch_export_new",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 if disp_new.empty:
                     st.info("No new customers found for this criteria.")
                 else:
                     st.dataframe(add_index(disp_new), use_container_width=True)
                     
             with col_lost:
+                st.markdown(f"#### 🔴 Top 10 Lost Customers (Bought in {y_old}, 0 in {y_new})")
                 df_lost_cust = df_lost_cust.sort_values("Net_Old", ascending=False).head(10)
                 disp_lost = df_lost_cust[["Customer", "Net_Old"]].copy()
                 disp_lost["Net_Old"] = disp_lost["Net_Old"].apply(to_display_num)
                 disp_lost = disp_lost.rename(columns={"Net_Old": f"Lost Net from {y_old} (EUR)"})
-                
-                section_header_with_png_export(
-                    "🔴 Top 10 Lost Customers", 
-                    disp_lost, 
-                    pie_infos=None,
-                    key="ch_export_lost",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 if disp_lost.empty:
                     st.success("No churned customers found for this criteria!")
                 else:
@@ -3051,7 +2752,6 @@ with tab_dead_stock:
             st.divider()
             st.markdown(f"### Sleeping Inventory KPIs ({y_old} ➔ {y_new})")
             
-            # Wdrożenie modyfikacji wyświetlania "Largest Sleeping Category"
             if selected_category_ds == "All Categories":
                 kpi1, kpi2, kpi3 = st.columns(3)
                 kpi1.metric("Total Dead Stock Value", f"{format_number_plain(total_dead_value)} EUR", delta=f"{dead_count} SKUs", delta_color="inverse")
@@ -3062,7 +2762,7 @@ with tab_dead_stock:
                     cat_losses = cat_losses.sort_values('Net_Old', ascending=False)
                     largest_cat = cat_losses.iloc[0]['Category']
                     largest_cat_val = cat_losses.iloc[0]['Net_Old']
-                    kpi3.metric("Largest Sleeping Category", str(largest_cat), f"-{format_number_plain(largest_cat_val)} EUR", delta_color="normal")
+                    kpi3.metric("Largest Sleeping Category", str(largest_cat), f"-{format_number_plain(largest_cat_val)} EUR", delta_color="normal") # normal bo to strata
                 else:
                     kpi3.metric("Largest Sleeping Category", "N/A")
             else:
@@ -3071,6 +2771,8 @@ with tab_dead_stock:
                 kpi2.metric("Total Dead Stock Qty", f"{format_number_plain(total_dead_qty)} PCS")
             
             st.divider()
+            st.markdown(f"#### 🔴 Top 100 Sleeping Products (Sold in {y_old}, 0 in {y_new})")
+            
             if dead_stock.empty:
                 st.success("🎉 Excellent! No sleeping inventory found for these filters.")
             else:
@@ -3080,13 +2782,6 @@ with tab_dead_stock:
                 disp_ds = disp_ds[["Code", "Description", "Category", "Brand", "Net_Old", "Qty_Old"]]
                 disp_ds = disp_ds.rename(columns={"Net_Old": f"Lost Value from {y_old} (EUR)", "Qty_Old": f"Lost Qty from {y_old}"})
                 
-                section_header_with_png_export(
-                    "🔴 Top 100 Sleeping Products", 
-                    disp_ds, 
-                    pie_infos=None,
-                    key="ds_export",
-                    color_map=GLOBAL_COLOR_MAP
-                )
                 st.dataframe(add_index(disp_ds), use_container_width=True)
         else:
             st.info("Not enough data to calculate Dead Stock (need at least 2 valid years for the selected filters).")
