@@ -228,7 +228,6 @@ def generate_section_png_bytes(title: str, df: pd.DataFrame, pie_infos: list = N
     from plotly.subplots import make_subplots
     
     num_rows = len(df) if df is not None else 0
-    # Dynamicznie dopasowana wysokość wykluczająca ucinanie zawartości i paski przewijania
     fig_height = 180 + min(max(num_rows, 2), 150) * 28 
     
     has_pies = pie_infos is not None and len(pie_infos) > 0
@@ -318,8 +317,8 @@ def generate_section_png_bytes(title: str, df: pd.DataFrame, pie_infos: list = N
         plot_bgcolor='white'
     )
     
-    for annotation in fig['layout'].get('annotations', []):
-        annotation['font'] = dict(size=15, color='#2c2c54', family="Arial")
+    # Bezpieczna aktualizacja czcionek we wszystkich adnotacjach zapobiegająca wystąpieniu AttributeError
+    fig.update_annotations(font=dict(size=15, color='#2c2c54', family="Arial"))
         
     try:
         return fig.to_image(format="png", engine="kaleido")
@@ -1593,7 +1592,6 @@ with tab_overview:
                 disp = disp.rename(columns={group_col: display_name})
                 cols_order = [display_name] + [f"Net {y}" for _,y in g_dfs_c] + ([f"YoY {y_newest} vs {g_dfs_c[-2][1]} (%)"] if len(g_dfs_c)>=2 else [])
                 
-                # Zbieranie wykresów kołowych do integracji z pobieranym PNG
                 pie_infos = []
                 for i, (g, y) in enumerate(g_dfs_c):
                     plot_df = master.copy()
@@ -1818,6 +1816,19 @@ with tab_full:
             color_map=GLOBAL_COLOR_MAP
         )
 
+def get_filtered_cr_dfs(m_dict):
+    v_dfs = []
+    for d_f, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+        if d_f is not None:
+            tmp = d_f.copy()
+            if m_dict.get("country") and m_dict["country"] != "All Countries": tmp = tmp[tmp[c["Country"]] == m_dict["country"]]
+            if m_dict.get("customer") and m_dict["customer"] != "All Customers": tmp = tmp[tmp[c["Customer"]] == m_dict["customer"]]
+            if m_dict.get("category") and m_dict["category"] != "All Categories": tmp = tmp[tmp[c["Cat"]] == m_dict["category"]]
+            if m_dict.get("brand") and m_dict["brand"] != "All Brands": tmp = tmp[tmp[c["Brand"]] == m_dict["brand"]]
+            if m_dict.get("months"): tmp = tmp[tmp[c["Month"]].isin(m_dict["months"])]
+            if not tmp.empty: v_dfs.append((tmp, str(y), c))
+    return sorted(v_dfs, key=lambda x: x[1])
+
 # ================= TAB: CUSTOMER REVIEW =================
 with tab_customer:
     st.header("👥 Customer Review")
@@ -2038,7 +2049,6 @@ with tab_customer:
                     if len(group_dfs_chrono) >= 2:
                         cols_order.append(f"YoY {y_newest} vs {group_dfs_chrono[-2][1]} (%)")
                         
-                    # Obliczanie wykresów kołowych do eksportu PNG
                     pie_infos = []
                     for i, (g, y, _) in enumerate(group_dfs_chrono):
                         plot_df = master.copy()
@@ -2472,6 +2482,8 @@ with tab_country:
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
+                
+                # Wykluczanie państw
                 d_f = d_f[~d_f[c["Country"]].astype(str).str.lower().str.strip().isin(excluded_countries)]
                 
                 if selected_category_co != "All Categories": d_f = d_f[d_f[c["Cat"]] == selected_category_co]
@@ -2501,6 +2513,9 @@ with tab_country:
             master_co = sort_by_col_desc(master_co, f"Net {y_newest_str}")
 
             st.divider()
+        
+            st.markdown("### Net Value Comparison")
+            
             chart_data_rows = []
             for y_str in [item[1] for item in co_dfs_grouped]:
                 for _, r in master_co.iterrows():
@@ -2513,10 +2528,10 @@ with tab_country:
                         })
             
             if chart_data_rows:
-                chart_co_df = pd.DataFrame(chart_data_rows)
+                chart_df = pd.DataFrame(chart_data_rows)
                 section_header_with_png_export(
                     "Net Value Comparison", 
-                    chart_co_df, 
+                    chart_df, 
                     pie_infos=None,
                     key="co_export_net",
                     color_map=GLOBAL_COLOR_MAP
@@ -2524,7 +2539,7 @@ with tab_country:
                 country_order = master_co["Country"].tolist()
                 
                 fig = px.bar(
-                    chart_co_df, 
+                    chart_df, 
                     x="Country", 
                     y="Net", 
                     color="Year", 
@@ -2555,7 +2570,6 @@ with tab_country:
                 master_co_disp[f"Net {y_str}"] = master_co_disp.get(f"Net {y_str}", pd.Series(dtype=int)).apply(to_display_num)
                 master_co_disp[f"Qty {y_str}"] = master_co_disp.get(f"Qty {y_str}", pd.Series(dtype=int)).apply(to_display_num)
                 
-            # Przygotowanie powiązanych wykresów kołowych do uwzględnienia na eksportowanym obrazie PNG
             pie_infos_co = []
             for g_df, y_str in co_dfs_grouped:
                 plot_df = master_co.copy()
@@ -2921,6 +2935,7 @@ with tab_churn:
             st.markdown(f"### Acquisition & Churn KPIs ({y_old} ➔ {y_new})")
             kpi1, kpi2, kpi3 = st.columns(3)
             kpi1.metric("Acquired Value (from New Customers)", f"{format_number_plain(val_acquired)} EUR", f"{len(df_new_cust)} Customers")
+            
             kpi2.metric("Lost Value (from Churned Customers)", f"{format_number_plain(val_lost)} EUR", f"-{len(df_lost_cust)} Customers", delta_color="normal")
             
             impact_color = "normal" if net_impact >= 0 else "inverse"
@@ -3036,6 +3051,7 @@ with tab_dead_stock:
             st.divider()
             st.markdown(f"### Sleeping Inventory KPIs ({y_old} ➔ {y_new})")
             
+            # Wdrożenie modyfikacji wyświetlania "Largest Sleeping Category"
             if selected_category_ds == "All Categories":
                 kpi1, kpi2, kpi3 = st.columns(3)
                 kpi1.metric("Total Dead Stock Value", f"{format_number_plain(total_dead_value)} EUR", delta=f"{dead_count} SKUs", delta_color="inverse")
