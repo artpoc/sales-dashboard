@@ -1256,7 +1256,7 @@ def render_single_year_dashboard(
 
 # ================= MAIN APP INITIALIZATION =================
 st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
-st.title("📊 Sales Intelligence Dashboard - © Patryk Pociecha")
+st.title("📊 Sales Intelligence Dashboard")
 
 if 'file_uploader_key' not in st.session_state:
     st.session_state['file_uploader_key'] = 0
