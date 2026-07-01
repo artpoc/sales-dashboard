@@ -2105,7 +2105,24 @@ with tab_cust_sales:
             st.markdown(f"### 📊 Customer Sales Ranking for {selected_cs_year}")
             st.dataframe(add_index(cs_display), use_container_width=True)
             
-
+            # Dodatkowy wykres podglądu Top 10 Klientów
+            st.divider()
+            st.markdown(f"### 📈 Top 10 Customers Chart ({selected_cs_year})")
+            top_10_cust = cs_grouped.head(10).copy()
+            top_10_cust[net_col] = top_10_cust[net_col].apply(lambda v: float(clean_number(v)))
+            st.plotly_chart(
+                px.bar(
+                    top_10_cust, 
+                    x=cust_col, 
+                    y=net_col, 
+                    text=net_col,
+                    title=f"Top 10 Customers by Net Sales in {selected_cs_year} (EUR)",
+                    labels={net_col: "Net Value (EUR)", cust_col: "Customer"},
+                    color=cust_col,
+                    color_discrete_map=GLOBAL_COLOR_MAP
+                ),
+                use_container_width=True
+            )
 
 
 # ================= TAB: CATEGORY REVIEW =================
