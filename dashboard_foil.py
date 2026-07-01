@@ -2105,8 +2105,6 @@ with tab_cust_sales:
             st.markdown(f"### 📊 Customer Sales Ranking for {selected_cs_year}")
             st.dataframe(add_index(cs_display), use_container_width=True)
             
-            
-            )
 
 
 # ================= TAB: CATEGORY REVIEW =================
