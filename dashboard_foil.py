@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, getcontext
-import re
 
 # ===== PERFECT ENGINE INTEGRATION =====
 getcontext().prec = 28
@@ -12,33 +11,26 @@ def clean_number(x):
         return x
     if x is None or pd.isna(x):
         return Decimal('0')
-    
     s = str(x).strip()
-    # Usuwanie spacji i twardych spacji
+    
+    # Usuwanie spacji i normalizacja znaków minusa
     s = s.replace("\xa0","").replace("\u202f","").replace(" ","")
-    # Zamiana polskiego przecinka na kropkę
+    s = s.replace("−", "-").replace("–", "-").replace("—", "-")
     s = s.replace(",", ".")
     
-    # Standaryzacja znaków minusa (półpauzy, pauzy na zwykły minus)
-    s = s.replace("−", "-").replace("–", "-").replace("—", "-")
-    
-    # Obsługa formatu księgowego dla liczb ujemnych: (123.45) -> -123.45
-    if s.startswith("(") and s.endswith(")"):
-        s = "-" + s[1:-1]
+    # Obsługa księgowego formatu wartości ujemnych z Excela, np. (150.50) -> -150.50
+    if s.startswith('(') and s.endswith(')'):
+        s = '-' + s[1:-1]
+        
+    # Obsługa formatu z minusem na końcu, np. 150.50- -> -150.50
+    if s.endswith('-') and s.count('-') == 1 and not s.startswith('-'):
+        s = '-' + s[:-1]
         
     if s in ["", "-", "nan", "None"]:
         return Decimal('0')
-        
     try:
         return Decimal(s)
     except InvalidOperation:
-        # Ratunkowe wyciąganie cyfr w przypadku np. wystąpienia obcych symboli walut
-        s_cleaned = re.sub(r'[^\d\.\-]', '', s)
-        if s_cleaned and s_cleaned != '-':
-            try:
-                return Decimal(s_cleaned)
-            except InvalidOperation:
-                return Decimal('0')
         return Decimal('0')
 
 def sum_decimal(series):
@@ -836,7 +828,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # L4L TABLE (Group strictly by Code to prevent split rows)
+    # L4L TABLE
     st.markdown("### L4L Table")
     yoy_df_new = (
         df_new.groupby(code_col)
@@ -882,7 +874,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # AUTO INSIGHTS (TOP 5, GROWTH, DECLINE) FOR 2 YEARS
+    # AUTO INSIGHTS
     is_cat_all = (category_filter == "All Categories")
     st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {category_filter})")
     
@@ -953,7 +945,7 @@ def render_two_year_dashboard(
 
     st.divider()
 
-    # CUSTOMER IMPACT (RESTORED SECTION)
+    # CUSTOMER IMPACT SECTION
     st.markdown("### Customer Impact (Growth vs Decline)")
 
     all_categories = sorted(
@@ -1068,210 +1060,6 @@ def render_two_year_dashboard(
         )
 
 
-# ================= DASHBOARD FOR SINGLE YEAR (FULL YEAR ANALYSIS) =================
-def render_single_year_dashboard(
-    df: pd.DataFrame, cols: dict, year_name: str, unique_prefix: str, category_filter: str, color_map: dict = None
-):
-    color_map = color_map or {}
-    
-    if df is None or cols is None:
-        st.warning("No data for this view.")
-        return
-
-    net_col = cols["Net"]
-    qty_col = cols["Qty"]
-    code_col = cols["Code"]
-    desc_col = cols["Desc"]
-    brand_col = cols["Brand"]
-    cat_col = cols["Cat"]
-
-    st.markdown(f"### KPI ({year_name})")
-
-    s_net = sum_decimal(df[net_col])
-    s_qty = sum_decimal(df[qty_col])
-
-    c1, c2 = st.columns(2)
-    c1.metric(f"Net {year_name} (EUR)", format_number_plain(s_net))
-    c2.metric(f"Qty {year_name} (PCS)", format_number_plain(s_qty))
-
-    st.divider()
-
-    # CATEGORY PERFORMANCE
-    if category_filter == "All Categories":
-        st.markdown("### Category Performance")
-        cat = (
-            df.groupby(cat_col)
-            .agg({net_col: sum_decimal})
-            .reset_index()
-            .rename(columns={net_col: f"Net {year_name}"})
-        )
-        cat = sort_by_col_desc(cat, f"Net {year_name}")
-        plot_cat = cat.copy()
-        plot_cat[f"Net {year_name}"] = plot_cat.get(f"Net {year_name}", pd.Series(dtype=float)).apply(
-            lambda v: float(clean_number(v))
-        )
-
-        st.markdown(f"#### Category Pie {year_name}")
-        st.plotly_chart(
-            px.pie(plot_cat, names=cat_col, values=f"Net {year_name}", color=cat_col, color_discrete_map=color_map),
-            use_container_width=True,
-            key=f"{unique_prefix}_cat_pie_{year_name}"
-        )
-
-        cat_disp = cat.copy()
-        cat_disp[f"Net {year_name}"] = cat_disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
-        st.dataframe(add_index(cat_disp[[cat_col, f"Net {year_name}"]]))
-
-        st.divider()
-
-    # BRAND PERFORMANCE
-    st.markdown("### Brand Performance")
-    brand = (
-        df.groupby(brand_col)
-        .agg({net_col: sum_decimal})
-        .reset_index()
-        .rename(columns={net_col: f"Net {year_name}"})
-    )
-    brand = sort_by_col_desc(brand, f"Net {year_name}")
-    bplot = brand.copy()
-    bplot[f"Net {year_name}"] = bplot.get(f"Net {year_name}", pd.Series(dtype=float)).apply(
-        lambda v: float(clean_number(v))
-    )
-
-    st.markdown(f"#### Brand Pie {year_name}")
-    st.plotly_chart(
-        px.pie(bplot, names=brand_col, values=f"Net {year_name}", color=brand_col, color_discrete_map=color_map),
-        use_container_width=True,
-        key=f"{unique_prefix}_brand_pie_{year_name}"
-    )
-
-    brand_disp = brand.copy()
-    brand_disp[f"Net {year_name}"] = brand_disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
-    st.dataframe(add_index(brand_disp[[brand_col, f"Net {year_name}"]]))
-
-    st.divider()
-
-    # TOP PRODUCTS
-    st.markdown("### Top Products")
-    if df.empty:
-        st.info("No data for selected filters.")
-    else:
-        d = (
-            df.groupby(code_col)
-            .agg({desc_col: "first", net_col: sum_decimal, qty_col: sum_decimal})
-            .reset_index()
-        )
-        d = d[d[net_col].apply(lambda x: clean_number(x) > 0)]
-        d = sort_by_col_desc(d, net_col)
-        if d.empty:
-            st.info("No sales.")
-        else:
-            top = d.head(10)
-            total_val = sum_decimal(d[net_col])
-            if total_val == 0:
-                top["Share (%)"] = 0.0
-            else:
-                top["Share (%)"] = top[net_col].apply(
-                    lambda x: percent_label(clean_number(x) / total_val * Decimal('100'))
-                )
-            disp = top.copy()
-            disp[net_col] = disp.get(net_col, pd.Series(dtype=int)).apply(to_display_num)
-            disp[qty_col] = disp.get(qty_col, pd.Series(dtype=int)).apply(to_display_num)
-            st.dataframe(
-                add_index(disp[[code_col, desc_col, net_col, qty_col, "Share (%)"]])
-            )
-
-    st.divider()
-
-    # PARETO
-    st.markdown("### Pareto Analysis")
-    p = (
-        df.groupby(code_col)
-        .agg({desc_col: "first", cat_col: "first", net_col: sum_decimal})
-        .reset_index()
-    )
-    p = p[p[net_col].apply(lambda x: clean_number(x) > 0)]
-    if p.empty:
-        st.info("No sales.")
-    else:
-        p = sort_by_col_desc(p, net_col)
-        p["cum_value"] = p[net_col].cumsum()
-        total_val = sum_decimal(p[net_col])
-        if total_val == 0:
-            st.info("Total value is zero.")
-        else:
-            p["cum_share"] = p["cum_value"].apply(
-                lambda x: clean_number(x) / total_val
-            )
-            top80 = p[p["cum_share"] <= Decimal('0.8')]
-            total_sku = p[code_col].nunique()
-            pareto_sku = top80[code_col].nunique()
-            sku_share = (
-                Decimal(pareto_sku) / Decimal(total_sku) * Decimal('100')
-                if total_sku > 0
-                else Decimal('0')
-            )
-            st.write(
-                f"Top SKU for 80%: {pareto_sku} / {total_sku} ({format_number_plain(sku_share)}% of SKU)"
-            )
-            p_disp = top80[[code_col, desc_col, cat_col, net_col]].copy()
-            p_disp[net_col] = p_disp.get(net_col, pd.Series(dtype=int)).apply(to_display_num)
-            st.dataframe(add_index(p_disp))
-
-    st.divider()
-
-    # ABC
-    st.markdown("### ABC Analysis")
-    a = (
-        df.groupby(code_col)
-        .agg({desc_col: "first", net_col: sum_decimal})
-        .reset_index()
-    )
-    a = a[a[net_col].apply(lambda x: clean_number(x) > 0)]
-    if a.empty:
-        st.info("No sales.")
-    else:
-        a = sort_by_col_desc(a, net_col).reset_index(drop=True)
-        total_val = sum_decimal(a[net_col])
-        if total_val == 0:
-            st.info("Total is zero.")
-        else:
-            a["cum"] = a[net_col].cumsum().apply(
-                lambda x: clean_number(x) / total_val
-            )
-            a["segment"] = "C"
-            a.loc[a["cum"] <= Decimal('0.7'), "segment"] = "A"
-            a.loc[
-                (a["cum"] > Decimal('0.7')) & (a["cum"] <= Decimal('0.9')),
-                "segment",
-            ] = "B"
-            seg_counts = a["segment"].value_counts()
-            st.write(
-                f"A: {seg_counts.get('A',0)} | B: {seg_counts.get('B',0)} | C: {seg_counts.get('C',0)}"
-            )
-            a_disp = a[[code_col, desc_col, net_col, "segment"]].copy()
-            a_disp[net_col] = a_disp.get(net_col, pd.Series(dtype=int)).apply(to_display_num)
-            st.dataframe(add_index(a_disp))
-
-    st.divider()
-
-    # AUTO INSIGHTS (Top 5 Categories)
-    if category_filter == "All Categories":
-        st.markdown("### Auto Insights")
-        cat_ins = (
-            df.groupby(cat_col)
-            .agg({net_col: sum_decimal})
-            .reset_index()
-            .rename(columns={net_col: f"Net {year_name}"})
-        )
-        cat_ins = sort_by_col_desc(cat_ins, f"Net {year_name}")
-        st.write("#### Top 5 Categories")
-        top5 = cat_ins.head(5)
-        disp = top5.copy()
-        disp[f"Net {year_name}"] = disp.get(f"Net {year_name}", pd.Series(dtype=int)).apply(to_display_num)
-        st.dataframe(add_index(disp[[cat_col, f"Net {year_name}"]]))
-
-
 # ================= MAIN APP INITIALIZATION =================
 st.set_page_config(layout="wide", page_title="Sales Intelligence Dashboard")
 st.title("📊 Sales Intelligence Dashboard")
@@ -1288,7 +1076,7 @@ def update_cached_file(file_obj, state_key, label):
         st.session_state[state_key] = load_single_year_file(file_obj, label)
         st.session_state[f"{state_key}_id"] = file_obj.file_id
         
-        # Czyszczenie kluczy filtrów miesięcy żeby zapobiec "State Stickiness"
+        # Clear filter keys to avoid "State Stickiness"
         keys_to_del = [k for k in st.session_state.keys() if "_months_" in k]
         for k in keys_to_del:
             del st.session_state[k]
@@ -1307,12 +1095,10 @@ with col_reset:
             st.session_state[key] = (None, None, None)
             st.session_state[f"{key}_id"] = None
         
-        # Wymuszone czyszczenie całej pamięci podręcznej filtrów
         keys_to_del = [k for k in st.session_state.keys() if "_months" in k or "last_hm_str" in k]
         for k in keys_to_del: 
             del st.session_state[k]
             
-        # Unikalny klucz uploaderów - zmusza je do "oczyszczenia" interfejsu
         st.session_state['file_uploader_key'] += 1
         st.rerun()
 
@@ -1334,6 +1120,26 @@ df_curr, cols_curr, year_curr = st.session_state['data_curr']
 if df_prev is None and df_curr is None and df_old2 is None:
     st.info("Upload at least one Excel file.")
     st.stop()
+
+# MAP YEARS GLOBALLY
+year_options = []
+year_map_df = {}
+year_map_cols = {}
+
+if df_old2 is not None:
+    year_options.append(year_old2)
+    year_map_df[year_old2] = df_old2
+    year_map_cols[year_old2] = cols_old2
+if df_prev is not None:
+    year_options.append(year_prev)
+    year_map_df[year_prev] = df_prev
+    year_map_cols[year_prev] = cols_prev
+if df_curr is not None:
+    year_options.append(year_curr)
+    year_map_df[year_curr] = df_curr
+    year_map_cols[year_curr] = cols_curr
+
+year_options = sorted(list(set(year_options)))
 
 # GLOBAL COLOR MAP GENERATION
 GLOBAL_COLOR_MAP = {"Other": "#808080"}
@@ -1374,9 +1180,9 @@ if len(all_loaded_dfs_for_colors) > 0:
 
 st.divider()
 
-# TABS DECLARATION (ADDED CUSTOMERS SALES TAB)
-tab_overview, tab_l4l, tab_full, tab_customer, tab_cust_sales, tab_category, tab_country, tab_brand, tab_churn, tab_dead_stock = st.tabs([
-    "📈 Overview", "📅 Detailed L4L", "📊 Full Year Analysis", "👥 Customer Review", "💰 Customers Sales", "📁 Category Review", "🌍 Country Review", "🏷️ Brand Review", "⚠️ Churn & Acquisition", "📦 Dead Stock"
+# TABS DECLARATION IN REORDERED STRUCTURE
+tab_cust_sales, tab_customer, tab_overview, tab_country, tab_category, tab_brand, tab_l4l = st.tabs([
+    "💰 Customers Sales", "👥 Customer Review", "📈 Overview — 3-year Comparison", "🌍 Country Review", "📁 Category Review", "🏷️ Brand Review", "📅 Detailed L4L"
 ])
 
 hierarchy_df, hierarchy_cols = None, None
@@ -1392,7 +1198,6 @@ if hierarchy_df is not None:
     hm_raw = hierarchy_df[hierarchy_cols["Month"]].dropna().unique().tolist()
     hierarchy_months = sorted([m for m in hm_raw if m in MONTHS_ORDER], key=lambda x: MONTHS_ORDER.index(x))
 
-# Główne rozwiązanie problemu ze "State Stickiness"
 hm_sig = "".join([m[:3] for m in hierarchy_months]) if hierarchy_months else "default"
 
 if st.session_state.get('last_hm_str') != hm_sig:
@@ -1423,254 +1228,183 @@ def style_monthly_table(df):
             return [""] * len(s)
     return df.style.apply(color_cells, axis=1)
 
-# ================= TAB: OVERVIEW =================
-with tab_overview:
-    st.header("Overview — 3-year Comparison")
-    loaded_dfs = [d for d in [df_curr, df_prev, df_old2] if d is not None]
-    if not loaded_dfs: 
-        st.warning("Please upload data.")
-    else:
-        filtered_dfs, meta = apply_shared_filters(loaded_dfs, hierarchy_cols, "ov", default_months=hierarchy_months, hm_sig=hm_sig)
-        df_curr_f = filtered_dfs[0] if df_curr is not None else None
-        df_prev_f = filtered_dfs[1 if df_curr is not None else 0] if df_prev is not None else None
-        df_old2_f = filtered_dfs[-1] if df_old2 is not None else None
 
-        st.divider()
-        st.markdown("### Net Value Comparison (Global Filters Applied)")
-        vals, years = [], []
-        for df_f, y, c in zip([df_old2_f, df_prev_f, df_curr_f], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
-            if df_f is not None: 
-                vals.append(float(sum_decimal(df_f[c["Net"]])))
-                years.append(y)
-        if vals: 
-            chart_df = pd.DataFrame({"Year": years, "Net (EUR)": vals}).sort_values("Year")
-            st.plotly_chart(px.bar(chart_df, x="Year", y="Net (EUR)", text="Net (EUR)", title="Net Value YTD", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
-
-        def render_3y_analysis(group_col, title, dfs, year_list, cols_list, display_name):
-            st.divider()
-            st.markdown(f"### {title}")
-            g_dfs = []
-            for df, y, c in zip(dfs, year_list, cols_list):
-                if df is not None:
-                    g = df.groupby(group_col).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                    g_dfs.append((g, y))
-            
-            if g_dfs:
-                master = g_dfs[0][0]
-                for g, y in g_dfs[1:]: 
-                    master = pd.merge(master, g, on=group_col, how="outer")
-                master = master.fillna(Decimal('0'))
-                g_dfs_c = sorted(g_dfs, key=lambda x: x[1])
-                y_newest = g_dfs_c[-1][1]
-                if len(g_dfs_c) >= 2: 
-                    master[f"YoY {y_newest} vs {g_dfs_c[-2][1]}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {g_dfs_c[-2][1]}", 0)), axis=1) if not master.empty else []
-                master = sort_by_col_desc(master, f"Net {y_newest}")
-
-                pie_cols = st.columns(len(g_dfs_c))
-                for i, (g, y) in enumerate(g_dfs_c):
-                    plot_df = master.copy()
-                    plot_df[f"Net {y}"] = plot_df.get(f"Net {y}").apply(lambda v: max(0, float(clean_number(v))))
-                    tot = plot_df[f"Net {y}"].sum()
-                    if tot > 0:
-                        plot_df.loc[plot_df[f"Net {y}"] / tot < 0.005, group_col] = 'Other'
-                        plot_df = plot_df.groupby(group_col, as_index=False)[[f"Net {y}"]].sum()
-                    with pie_cols[i]: 
-                        st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} {y}", color=group_col, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
-                
-                disp = master.copy()
-                for _, y in g_dfs_c: 
-                    disp[f"Net {y}"] = disp.get(f"Net {y}").apply(to_display_num)
-                if len(g_dfs_c) >= 2: 
-                    disp[f"YoY {y_newest} vs {g_dfs_c[-2][1]} (%)"] = disp.get(f"YoY {y_newest} vs {g_dfs_c[-2][1]}").apply(yoy_label)
-                
-                disp = disp.rename(columns={group_col: display_name})
-                cols_order = [display_name] + [f"Net {y}" for _,y in g_dfs_c] + ([f"YoY {y_newest} vs {g_dfs_c[-2][1]} (%)"] if len(g_dfs_c)>=2 else [])
-                st.dataframe(add_index(disp[cols_order]), use_container_width=True)
-
-        dfs_cat = []
-        for df_f, c_map, orig_d in zip([df_curr_f, df_prev_f, df_old2_f], [cols_curr, cols_prev, cols_old2], [df_curr, df_prev, df_old2]):
-            if df_f is not None and orig_d is not None:
-                d = orig_d.copy()
-                if meta["country"] != "All Countries": d = d[d[c_map["Country"]] == meta["country"]]
-                if meta["customer"] != "All Customers": d = d[d[c_map["Customer"]] == meta["customer"]]
-                if meta["months"]: d = d[d[c_map["Month"]].isin(meta["months"])]
-                dfs_cat.append(d)
-            else:
-                dfs_cat.append(None)
-
-        if meta["category"] == "All Categories":
-            render_3y_analysis(hierarchy_cols["Cat"], "Category Comparison", dfs_cat, [year_curr, year_prev, year_old2], [cols_curr, cols_prev, cols_old2], "Category")
-        
-        render_3y_analysis(hierarchy_cols["Brand"], "Brand Comparison", [df_curr_f, df_prev_f, df_old2_f], [year_curr, year_prev, year_old2], [cols_curr, cols_prev, cols_old2], "Brand")
-
-        st.divider()
-        is_cat_all = (meta["category"] == "All Categories")
-        st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta['category']})")
-        
-        ins_dfs_ov = []
-        for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
-            if orig_d is not None:
-                d_f = orig_d.copy()
-                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
-                if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
-                if not is_cat_all: d_f = d_f[d_f[c["Cat"]] == meta["category"]]
-                if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
-                
-                if not d_f.empty:
-                    if is_cat_all: 
-                        g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                        ins_dfs_ov.append((g, y, c["Cat"]))
-                    else: 
-                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
-                        ins_dfs_ov.append((g, y, c["Code"]))
-                
-        if len(ins_dfs_ov) >= 2:
-            if is_cat_all:
-                c_master_key = ins_dfs_ov[0][2]
-                master_ins_ov = ins_dfs_ov[0][0]
-                for g, y, _ in ins_dfs_ov[1:]: 
-                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_master_key, how="outer")
-                master_ins_ov = master_ins_ov.fillna(Decimal('0'))
-                disp_prefix = [c_master_key]
-            else:
-                c_code = ins_dfs_ov[0][2]
-                c_desc = hierarchy_cols["Desc"]
-                master_ins_ov = ins_dfs_ov[0][0]
-                for g, y, _ in ins_dfs_ov[1:]:
-                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_code, how="outer", suffixes=("", "_y"))
-                    master_ins_ov[c_desc] = master_ins_ov[c_desc].fillna(master_ins_ov[c_desc + "_y"])
-                    master_ins_ov = master_ins_ov.drop(columns=[c_desc + "_y"])
-                for col in master_ins_ov.columns:
-                    if "Net" in col: 
-                        master_ins_ov[col] = master_ins_ov[col].fillna(Decimal('0'))
-                master_ins_ov = master_ins_ov.rename(columns={c_code: "Code", c_desc: "Description"})
-                disp_prefix = ["Code", "Description"]
-            
-            ins_chrono_ov = sorted(ins_dfs_ov, key=lambda x: x[1])
-            ov_years = [item[1] for item in ins_chrono_ov]
-            y_newest = ov_years[-1]
-            y1 = ov_years[-2]
-            
-            master_ins_ov["Change_1_Raw"] = master_ins_ov.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
-            master_ins_ov["YoY_1"] = master_ins_ov.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
-            
-            if len(ov_years) >= 2:
-                master_ins_ov[f"Change {y_newest} vs {y1}"] = master_ins_ov["Change_1_Raw"].apply(to_display_num)
-                master_ins_ov[f"YoY {y_newest} vs {y1} (%)"] = master_ins_ov["YoY_1"].apply(yoy_label)
-                display_cols = disp_prefix + [f"Net {y}" for y in ov_years] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write("#### Top 5 Growth" + (" Categories" if is_cat_all else " SKUs"))
-                growth = master_ins_ov[master_ins_ov["Change_1_Raw"] > 0].sort_values("Change_1_Raw", ascending=False).head(5)
-                if not growth.empty:
-                    disp = growth.copy()
-                    for y in ov_years: 
-                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
-                    st.dataframe(add_index(disp[display_cols]))
-                else: 
-                    st.info("No growth found.")
-                    
-            with c2:
-                st.write("#### Top 5 Decline" + (" Categories" if is_cat_all else " SKUs"))
-                decline = master_ins_ov[master_ins_ov["Change_1_Raw"] < 0].sort_values("Change_1_Raw", ascending=True).head(5)
-                if not decline.empty:
-                    disp = decline.copy()
-                    for y in ov_years: 
-                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
-                    st.dataframe(add_index(disp[display_cols]))
-                else: 
-                    st.success("No decline found.")
-
-# ================= TAB: DETAILED L4L =================
-with tab_l4l:
-    st.header("Detailed Like-for-Like")
-    year_options = []
+# ================= TAB 1: CUSTOMERS SALES (NOWA) =================
+with tab_cust_sales:
+    st.header("💰 Customers Sales")
+    year_options_cs = []
     year_to_df = {}
     year_to_cols = {}
 
     if df_old2 is not None:
-        year_options.append(year_old2)
+        year_options_cs.append(year_old2)
         year_to_df[year_old2] = df_old2
         year_to_cols[year_old2] = cols_old2
     if df_prev is not None:
-        year_options.append(year_prev)
+        year_options_cs.append(year_prev)
         year_to_df[year_prev] = df_prev
         year_to_cols[year_prev] = cols_prev
     if df_curr is not None:
-        year_options.append(year_curr)
+        year_options_cs.append(year_curr)
         year_to_df[year_curr] = df_curr
         year_to_cols[year_curr] = cols_curr
 
-    if len(year_options) < 2:
-        st.warning("Detailed L4L requires at least two year files.")
+    if not year_options_cs:
+        st.warning("Please upload data.")
     else:
-        st.markdown("#### Select years (older on the left, newer on the right)")
-        left_year_option = st.selectbox("Older year", year_options, index=0, key="l4l_left_year")
-        right_year_option = st.selectbox("Newer year", year_options, index=1 if len(year_options) > 1 else 0, key="l4l_right_year")
+        # --- FILTRY KRAJU I MIESIĘCY ---
+        df_all_cs = pd.concat([year_to_df[y] for y in year_options_cs], ignore_index=True)
+        cs_c1, cs_c2 = st.columns(2)
+        
+        countries_cs = ["All Countries"] + sorted(df_all_cs[hierarchy_cols["Country"]].replace("", pd.NA).dropna().unique().tolist())
+        selected_country_cs = cs_c1.selectbox("🌎 Country", countries_cs, key="cs_country")
 
-        if left_year_option == right_year_option:
-            st.error("Older year and newer year must be different.")
+        options_cs_m = MONTHS_ORDER
+        default_cs_m = [m for m in hierarchy_months if m in options_cs_m]
+        if not default_cs_m:
+            default_cs_m = options_cs_m
+        
+        key_cs_mo = f"cs_months_{hm_sig}"
+        label_cs_m = f"📅 Months ({len(default_cs_m)} active)"
+        selected_months_cs = cs_c2.multiselect(label_cs_m, options=options_cs_m, default=default_cs_m, key=key_cs_mo)
+        
+        def filter_df_cs(d_f, c):
+            """Pomocnicza funkcja do nakładania filtrów z zakładki na dataframe."""
+            if d_f is None: return None
+            res = d_f.copy()
+            if selected_country_cs != "All Countries":
+                res = res[res[c["Country"]] == selected_country_cs]
+            if selected_months_cs:
+                res = res[res[c["Month"]].isin(selected_months_cs)]
+            return res
+        # ---------------------------------
+
+        # Jawne sortowanie lat (najstarszy -> najnowszy) i odwrócenie, aby najnowszy był zawsze domyślny (indeks 0)
+        sorted_years_cs = sorted(list(set(year_options_cs)))
+        selected_year = st.selectbox("Select Year", list(reversed(sorted_years_cs)), index=0, key="cust_sales_year")
+        
+        # Nałożenie filtrów na wybrany rok
+        df_sel = filter_df_cs(year_to_df[selected_year], year_to_cols[selected_year])
+        cols_sel = year_to_cols[selected_year]
+        
+        st.markdown(f"### Customers Sales in {selected_year}")
+        
+        cust_col = cols_sel["Customer"]
+        net_col = cols_sel["Net"]
+        
+        # Agregacja bieżącego roku (tylko Net, pomijamy Qty)
+        cust_sales = df_sel.groupby(cust_col).agg({net_col: sum_decimal}).reset_index()
+        
+        # --- OBLICZANIE YoY (%) I CHANGE VALUE DLA TABELI GŁÓWNEJ ---
+        idx = sorted_years_cs.index(selected_year)
+        has_prev = idx > 0
+        
+        if has_prev:
+            prev_y = sorted_years_cs[idx - 1]
+            df_prev_yr = filter_df_cs(year_to_df[prev_y], year_to_cols[prev_y])
+            c_prev = year_to_cols[prev_y]
+            
+            # Agregacja poprzedniego roku
+            cust_sales_prev = df_prev_yr.groupby(c_prev["Customer"]).agg({
+                c_prev["Net"]: sum_decimal
+            }).reset_index().rename(columns={c_prev["Customer"]: cust_col, c_prev["Net"]: "Net_Old"})
+            
+            # Merge z główną tabelą, obliczenie bezwzględnej zmiany i YoY %
+            cust_sales = pd.merge(cust_sales, cust_sales_prev, on=cust_col, how="left").fillna(Decimal('0'))
+            cust_sales["Change Value Raw"] = cust_sales[net_col] - cust_sales["Net_Old"]
+            cust_sales["YoY (%)"] = cust_sales.apply(lambda x: yoy_label(yoy_calc(x[net_col], x["Net_Old"])), axis=1)
+        # ---------------------------------------------
+        
+        cust_sales = sort_by_col_desc(cust_sales, net_col)
+        
+        # Przygotowanie do wyświetlenia
+        disp_cust = cust_sales.copy()
+        
+        # Tworzenie dynamicznych nazw kolumn
+        net_curr_label = f"Net {selected_year}"
+        disp_cust[net_curr_label] = disp_cust[net_col].apply(to_display_num)
+        
+        if has_prev:
+            net_prev_label = f"Net {prev_y}"
+            disp_cust[net_prev_label] = disp_cust["Net_Old"].apply(to_display_num)
+            disp_cust["Change Value"] = cust_sales["Change Value Raw"].apply(to_display_num)
+            
+            # Logiczny układ: Klient -> Wartość z poprzedniego roku -> Wartość z wybranego roku -> Różnica -> YoY %
+            display_cols = [cust_col, net_prev_label, net_curr_label, "Change Value", "YoY (%)"]
         else:
-            df_left = year_to_df[left_year_option]
-            cols_left = year_to_cols[left_year_option]
-            df_right = year_to_df[right_year_option]
-            cols_right = year_to_cols[right_year_option]
+            display_cols = [cust_col, net_curr_label]
+            
+        st.dataframe(add_index(disp_cust[display_cols]), use_container_width=True)
+        
+        # Wykres kołowy poniżej tabeli
+        st.markdown(f"### Customer Sales Distribution ({selected_year})")
+        plot_df = cust_sales.copy()
+        plot_df[net_col] = plot_df[net_col].apply(lambda x: max(0, float(clean_number(x))))
+        
+        tot = plot_df[net_col].sum()
+        if tot > 0:
+            plot_df.loc[plot_df[net_col] / tot < 0.01, cust_col] = 'Other'
+            plot_df = plot_df.groupby(cust_col, as_index=False)[[net_col]].sum()
+            
+        st.plotly_chart(px.pie(plot_df, names=cust_col, values=net_col, color=cust_col, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+        
+        # Customer Impact (Growth vs Decline)
+        st.divider()
+        st.markdown("### Customer Impact (Growth vs Decline)")
+        if len(sorted_years_cs) >= 2:
+            if idx > 0:
+                prev_year = sorted_years_cs[idx - 1]
+                st.write(f"Comparing {selected_year} vs {prev_year}")
+                
+                # Dodanie filtrów również do sekcji Impact
+                df_new = filter_df_cs(year_to_df[selected_year], year_to_cols[selected_year])
+                df_old = filter_df_cs(year_to_df[prev_year], year_to_cols[prev_year])
+                cols_new = year_to_cols[selected_year]
+                cols_old = year_to_cols[prev_year]
+                
+                c_col_new, net_new = cols_new["Customer"], cols_new["Net"]
+                c_col_old, net_old = cols_old["Customer"], cols_old["Net"]
+                
+                cust_new_df = df_new.groupby(c_col_new).agg({net_new: sum_decimal}).reset_index().rename(columns={net_new: f"Net {selected_year}", c_col_new: "Customer"})
+                cust_old_df = df_old.groupby(c_col_old).agg({net_old: sum_decimal}).reset_index().rename(columns={net_old: f"Net {prev_year}", c_col_old: "Customer"})
+                
+                impact = pd.merge(cust_new_df, cust_old_df, on="Customer", how="outer").fillna(Decimal('0'))
+                
+                impact["Change Value Raw"] = impact.get(f"Net {selected_year}", Decimal('0')) - impact.get(f"Net {prev_year}", Decimal('0'))
+                impact["Special Case"] = (impact.get(f"Net {prev_year}", Decimal('0')) < 0) & (impact.get(f"Net {selected_year}", Decimal('0')) == 0)
+                impact["YoY"] = impact.apply(lambda x: yoy_calc(x.get(f"Net {selected_year}", 0), x.get(f"Net {prev_year}", 0)), axis=1) if not impact.empty else []
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.write("#### Top Growth Drivers")
+                    growth_imp = impact[(impact["Change Value Raw"] > 0) & (~impact["Special Case"])].sort_values("Change Value Raw", ascending=False).head(10)
+                    growth_special = impact[impact["Special Case"]].head(10)
+                    growth_imp = pd.concat([growth_imp, growth_special])
+                    if growth_imp.empty:
+                        st.info("No growth generated by customers.")
+                    else:
+                        g_disp = growth_imp.copy()
+                        g_disp[f"Net {prev_year}"] = g_disp[f"Net {prev_year}"].apply(to_display_num)
+                        g_disp[f"Net {selected_year}"] = g_disp[f"Net {selected_year}"].apply(to_display_num)
+                        g_disp["Change Value"] = g_disp["Change Value Raw"].apply(to_display_num)
+                        g_disp["YoY (%)"] = g_disp["YoY"].apply(yoy_label)
+                        st.dataframe(add_index(g_disp[["Customer", f"Net {prev_year}", f"Net {selected_year}", "Change Value", "YoY (%)"]]))
+                
+                with c2:
+                    st.write("#### Top Decline Drivers")
+                    decline_imp = impact[impact["Change Value Raw"] < 0].sort_values("Change Value Raw").head(10)
+                    if decline_imp.empty:
+                        st.success("No decline across customers.")
+                    else:
+                        d_disp = decline_imp.copy()
+                        d_disp[f"Net {prev_year}"] = d_disp[f"Net {prev_year}"].apply(to_display_num)
+                        d_disp[f"Net {selected_year}"] = d_disp[f"Net {selected_year}"].apply(to_display_num)
+                        d_disp["Change Value"] = d_disp["Change Value Raw"].apply(to_display_num)
+                        d_disp["YoY (%)"] = d_disp["YoY"].apply(yoy_label)
+                        st.dataframe(add_index(d_disp[["Customer", f"Net {prev_year}", f"Net {selected_year}", "Change Value", "YoY (%)"]]))
+            else:
+                st.info(f"No previous year data available to compare with {selected_year}.")
 
-            st.markdown("### Filters for Detailed L4L")
-            filtered_list, meta = apply_shared_filters([df_left, df_right], cols_left, unique_prefix="l4l", default_months=hierarchy_months, hm_sig=hm_sig)
-
-            left_filtered, right_filtered = filtered_list
-
-            render_two_year_dashboard(
-                df_new=right_filtered, 
-                df_old=left_filtered, 
-                cols_new=cols_right, 
-                cols_old=cols_left,
-                context_name="detailed_l4l", 
-                unique_prefix="detailed_l4l", 
-                category_filter=meta["category"], 
-                color_map=GLOBAL_COLOR_MAP
-            )
-
-# ================= TAB: FULL YEAR =================
-with tab_full:
-    st.header("Full Year Analysis")
-    year_options = []
-    year_map_df = {}
-    year_map_cols = {}
-
-    if df_old2 is not None:
-        year_options.append(year_old2)
-        year_map_df[year_old2] = df_old2
-        year_map_cols[year_old2] = cols_old2
-    if df_prev is not None:
-        year_options.append(year_prev)
-        year_map_df[year_prev] = df_prev
-        year_map_cols[year_prev] = cols_prev
-    if df_curr is not None:
-        year_options.append(year_curr)
-        year_map_df[year_curr] = df_curr
-        year_map_cols[year_curr] = cols_curr
-
-    if not year_options:
-        st.info("No years available for full year analysis.")
-    else:
-        selected_full = st.selectbox("Select year for full year analysis", year_options, key="full_year_sel")
-        df_selected = year_map_df[selected_full]
-        cols_selected = year_map_cols[selected_full]
-
-        st.markdown("### Filters for Full Year")
-        filtered_selected, meta = create_single_filters(df_selected, cols_selected, unique_prefix="full")
-
-        render_single_year_dashboard(
-            df=filtered_selected, 
-            cols=cols_selected, 
-            year_name=selected_full, 
-            unique_prefix="full_dash", 
-            category_filter=meta["category"], 
-            color_map=GLOBAL_COLOR_MAP
-        )
 
 # ================= TAB: CUSTOMER REVIEW =================
 with tab_customer:
@@ -1735,6 +1469,7 @@ with tab_customer:
                 d_new, y_new, c_new = cr_valid_dfs_chrono[-1]
                 d_old, y_old, c_old = cr_valid_dfs_chrono[-2]
 
+                st.markdown(f"**Comparing Performance:** Year {y_old} vs Year {y_new}")
                 s_new_net = sum_decimal(d_new[c_new["Net"]])
                 s_old_net = sum_decimal(d_old[c_old["Net"]])
                 s_new_qty = sum_decimal(d_new[c_new["Qty"]])
@@ -1971,18 +1706,18 @@ with tab_customer:
                     if meta_cr["months"]: d_f = d_f[d_f[c["Month"]].isin(meta_cr["months"])]
                     
                     if not d_f.empty:
-                        if is_cat_all:
+                        if is_cat_all: 
                             g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
                             ins_dfs.append((g, y, c["Cat"]))
-                        else:
+                        else: 
                             g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
                             ins_dfs.append((g, y, c["Code"]))
-                    
+                            
             if len(ins_dfs) >= 2:
                 if is_cat_all:
                     c_master_key = ins_dfs[0][2]
                     master_ins = ins_dfs[0][0]
-                    for g, y, _ in ins_dfs[1:]:
+                    for g, y, _ in ins_dfs[1:]: 
                         master_ins = pd.merge(master_ins, g, on=c_master_key, how="outer")
                     master_ins = master_ins.fillna(Decimal('0'))
                     disp_prefix = [c_master_key]
@@ -1995,108 +1730,274 @@ with tab_customer:
                         master_ins[c_desc] = master_ins[c_desc].fillna(master_ins[c_desc + "_y"])
                         master_ins = master_ins.drop(columns=[c_desc + "_y"])
                     for col in master_ins.columns:
-                        if "Net" in col:
+                        if "Net" in col: 
                             master_ins[col] = master_ins[col].fillna(Decimal('0'))
                     master_ins = master_ins.rename(columns={c_code: "Code", c_desc: "Description"})
                     disp_prefix = ["Code", "Description"]
                 
                 ins_chrono = sorted(ins_dfs, key=lambda x: x[1])
-                cr_years = [item[1] for item in ins_chrono]
-                y_newest = cr_years[-1]
-                y1 = cr_years[-2]
+                cr_years_ins = [item[1] for item in ins_chrono]
+                y_newest = cr_years_ins[-1]
+                y1 = cr_years_ins[-2]
                 
                 master_ins["Change_1_Raw"] = master_ins.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
                 master_ins["YoY_1"] = master_ins.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
                 
-                if len(cr_years) >= 2:
-                    master_ins[f"Change {y_newest} vs {y1}"] = master_ins["Change_1_Raw"].apply(to_display_num)
-                    master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_1"].apply(yoy_label)
-                    display_cols = disp_prefix + [f"Net {y}" for y in cr_years] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
+                master_ins[f"Change {y_newest} vs {y1}"] = master_ins["Change_1_Raw"].apply(to_display_num)
+                master_ins[f"YoY {y_newest} vs {y1} (%)"] = master_ins["YoY_1"].apply(yoy_label)
+                display_cols = disp_prefix + [f"Net {y}" for y in cr_years_ins] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
 
-                c1, c2 = st.columns(2)
-                with c1:
+                cc1, cc2 = st.columns(2)
+                with cc1:
                     st.write("#### Top 5 Growth" + (" Categories" if is_cat_all else " SKUs"))
                     growth = master_ins[master_ins["Change_1_Raw"] > 0].sort_values("Change_1_Raw", ascending=False).head(5)
                     if not growth.empty:
                         disp = growth.copy()
-                        for y in cr_years:
+                        for y in cr_years_ins: 
                             disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
                         st.dataframe(add_index(disp[display_cols]))
-                    else:
+                    else: 
                         st.info("No growth found.")
                         
-                with c2:
+                with cc2:
                     st.write("#### Top 5 Decline" + (" Categories" if is_cat_all else " SKUs"))
                     decline = master_ins[master_ins["Change_1_Raw"] < 0].sort_values("Change_1_Raw", ascending=True).head(5)
                     if not decline.empty:
                         disp = decline.copy()
-                        for y in cr_years:
+                        for y in cr_years_ins: 
                             disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
                         st.dataframe(add_index(disp[display_cols]))
-                    else:
+                    else: 
                         st.success("No decline found.")
 
 
-# ================= TAB: CUSTOMERS SALES (NEW MODULE) =================
-with tab_cust_sales:
-    st.header("💰 Customers Sales Analysis")
-    
-    # Mapowanie dostępnych plików i przypisanie lat
-    cs_year_options = []
-    cs_year_map_df = {}
-    cs_year_map_cols = {}
-    
-    if df_old2 is not None:
-        cs_year_options.append(year_old2)
-        cs_year_map_df[year_old2] = df_old2
-        cs_year_map_cols[year_old2] = cols_old2
-    if df_prev is not None:
-        cs_year_options.append(year_prev)
-        cs_year_map_df[year_prev] = df_prev
-        cs_year_map_cols[year_prev] = cols_prev
-    if df_curr is not None:
-        cs_year_options.append(year_curr)
-        cs_year_map_df[year_curr] = df_curr
-        cs_year_map_cols[year_curr] = cols_curr
-        
-    if not cs_year_options:
-        st.warning("Please upload data first.")
+# ================= TAB: OVERVIEW =================
+with tab_overview:
+    st.header("Overview — 3-year Comparison")
+    loaded_dfs = [d for d in [df_curr, df_prev, df_old2] if d is not None]
+    if not loaded_dfs: 
+        st.warning("Please upload data.")
     else:
-        # Deklaracja filtrów w kolumnach
-        f_col1, f_col2, f_col3 = st.columns(3)
-        
-        selected_cs_year = f_col1.selectbox("📅 Select Year", cs_year_options, key="cs_year_selectbox")
-        
-        df_cs_active = cs_year_map_df[selected_cs_year].copy()
-        cols_cs_active = cs_year_map_cols[selected_cs_year]
-        
-        # Filtr krajów (Domyślnie wszystkie)
-        cs_countries = ["All Countries"] + sorted(df_cs_active[cols_cs_active["Country"]].replace("", pd.NA).dropna().unique().tolist())
-        selected_cs_country = f_col2.selectbox("🌎 Country Filter", cs_countries, index=0, key="cs_country_selectbox")
-        
-        # Filtr miesięcy
-        cs_options_m = MONTHS_ORDER
-        cs_default_m = [m for m in hierarchy_months if m in cs_options_m]
-        if not cs_default_m:
-            cs_default_m = cs_options_m
-        selected_cs_months = f_col3.multiselect("📅 Month Filter", options=cs_options_m, default=cs_default_m, key=f"cs_months_multiselect_{hm_sig}")
-        
-        # Aplikowanie filtrów na dane sprzedażowe wybranego roku
-        df_cs_filtered = df_cs_active.copy()
-        if selected_cs_country != "All Countries":
-            df_cs_filtered = df_cs_filtered[df_cs_filtered[cols_cs_active["Country"]] == selected_cs_country]
-        if selected_cs_months:
-            df_cs_filtered = df_cs_filtered[df_cs_filtered[cols_cs_active["Month"]].isin(selected_cs_months)]
+        filtered_dfs, meta = apply_shared_filters(loaded_dfs, hierarchy_cols, "ov", default_months=hierarchy_months, hm_sig=hm_sig)
+        df_curr_f = filtered_dfs[0] if df_curr is not None else None
+        df_prev_f = filtered_dfs[1 if df_curr is not None else 0] if df_prev is not None else None
+        df_old2_f = filtered_dfs[-1] if df_old2 is not None else None
+
+        st.divider()
+        st.markdown("### Net Value Comparison (Global Filters Applied)")
+        vals, years = [], []
+        for df_f, y, c in zip([df_old2_f, df_prev_f, df_curr_f], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+            if df_f is not None: 
+                vals.append(float(sum_decimal(df_f[c["Net"]])))
+                years.append(y)
+        if vals: 
+            chart_df = pd.DataFrame({"Year": years, "Net (EUR)": vals}).sort_values("Year")
+            st.plotly_chart(px.bar(chart_df, x="Year", y="Net (EUR)", text="Net (EUR)", title="Net Value YTD", color="Year", color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+
+        def render_3y_analysis(group_col, title, dfs, year_list, cols_list, display_name):
+            st.divider()
+            st.markdown(f"### {title}")
+            g_dfs = []
+            for df, y, c in zip(dfs, year_list, cols_list):
+                if df is not None:
+                    g = df.groupby(group_col).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                    g_dfs.append((g, y))
             
-        if df_cs_filtered.empty:
-            st.info("No sales data available for selected criteria.")
+            if g_dfs:
+                master = g_dfs[0][0]
+                for g, y in g_dfs[1:]: 
+                    master = pd.merge(master, g, on=group_col, how="outer")
+                master = master.fillna(Decimal('0'))
+                g_dfs_c = sorted(g_dfs, key=lambda x: x[1])
+                y_newest = g_dfs_c[-1][1]
+                if len(g_dfs_c) >= 2: 
+                    master[f"YoY {y_newest} vs {g_dfs_c[-2][1]}"] = master.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {g_dfs_c[-2][1]}", 0)), axis=1) if not master.empty else []
+                master = sort_by_col_desc(master, f"Net {y_newest}")
+
+                pie_cols = st.columns(len(g_dfs_c))
+                for i, (g, y) in enumerate(g_dfs_c):
+                    plot_df = master.copy()
+                    plot_df[f"Net {y}"] = plot_df.get(f"Net {y}").apply(lambda v: max(0, float(clean_number(v))))
+                    tot = plot_df[f"Net {y}"].sum()
+                    if tot > 0:
+                        plot_df.loc[plot_df[f"Net {y}"] / tot < 0.005, group_col] = 'Other'
+                        plot_df = plot_df.groupby(group_col, as_index=False)[[f"Net {y}"]].sum()
+                    with pie_cols[i]: 
+                        st.plotly_chart(px.pie(plot_df, names=group_col, values=f"Net {y}", title=f"{display_name} {y}", color=group_col, color_discrete_map=GLOBAL_COLOR_MAP), use_container_width=True)
+                
+                disp = master.copy()
+                for _, y in g_dfs_c: 
+                    disp[f"Net {y}"] = disp.get(f"Net {y}").apply(to_display_num)
+                if len(g_dfs_c) >= 2: 
+                    disp[f"YoY {y_newest} vs {g_dfs_c[-2][1]} (%)"] = disp.get(f"YoY {y_newest} vs {g_dfs_c[-2][1]}").apply(yoy_label)
+                
+                disp = disp.rename(columns={group_col: display_name})
+                cols_order = [display_name] + [f"Net {y}" for _,y in g_dfs_c] + ([f"YoY {y_newest} vs {g_dfs_c[-2][1]} (%)"] if len(g_dfs_c)>=2 else [])
+                st.dataframe(add_index(disp[cols_order]), use_container_width=True)
+
+        dfs_cat = []
+        for df_f, c_map, orig_d in zip([df_curr_f, df_prev_f, df_old2_f], [cols_curr, cols_prev, cols_old2], [df_curr, df_prev, df_old2]):
+            if df_f is not None and orig_d is not None:
+                d = orig_d.copy()
+                if meta["country"] != "All Countries": d = d[d[c_map["Country"]] == meta["country"]]
+                if meta["customer"] != "All Customers": d = d[d[c_map["Customer"]] == meta["customer"]]
+                if meta["months"]: d = d[d[c_map["Month"]].isin(meta["months"])]
+                dfs_cat.append(d)
+            else:
+                dfs_cat.append(None)
+
+        if meta["category"] == "All Categories":
+            render_3y_analysis(hierarchy_cols["Cat"], "Category Comparison", dfs_cat, [year_curr, year_prev, year_old2], [cols_curr, cols_prev, cols_old2], "Category")
+        
+        render_3y_analysis(hierarchy_cols["Brand"], "Brand Comparison", [df_curr_f, df_prev_f, df_old2_f], [year_curr, year_prev, year_old2], [cols_curr, cols_prev, cols_old2], "Brand")
+
+        st.divider()
+        is_cat_all = (meta["category"] == "All Categories")
+        st.markdown("### Auto Insights (Category Focus)" if is_cat_all else f"### Auto Insights (SKU Focus - {meta['category']})")
+        
+        ins_dfs_ov = []
+        for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+            if orig_d is not None:
+                d_f = orig_d.copy()
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_country]
+                if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
+                if not is_cat_all: d_f = d_f[d_f[c["Cat"]] == meta["category"]]
+                if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
+                
+                if not d_f.empty:
+                    if is_cat_all: 
+                        g = d_f.groupby(c["Cat"]).agg({c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs_ov.append((g, y, c["Cat"]))
+                    else: 
+                        g = d_f.groupby(c["Code"]).agg({c["Desc"]: "first", c["Net"]: sum_decimal}).reset_index().rename(columns={c["Net"]: f"Net {y}"})
+                        ins_dfs_ov.append((g, y, c["Code"]))
+                
+        if len(ins_dfs_ov) >= 2:
+            if is_cat_all:
+                c_master_key = ins_dfs_ov[0][2]
+                master_ins_ov = ins_dfs_ov[0][0]
+                for g, y, _ in ins_dfs_ov[1:]: 
+                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_master_key, how="outer")
+                master_ins_ov = master_ins_ov.fillna(Decimal('0'))
+                disp_prefix = [c_master_key]
+            else:
+                c_code = ins_dfs_ov[0][2]
+                c_desc = hierarchy_cols["Desc"]
+                master_ins_ov = ins_dfs_ov[0][0]
+                for g, y, _ in ins_dfs_ov[1:]:
+                    master_ins_ov = pd.merge(master_ins_ov, g, on=c_code, how="outer", suffixes=("", "_y"))
+                    master_ins_ov[c_desc] = master_ins_ov[c_desc].fillna(master_ins_ov[c_desc + "_y"])
+                    master_ins_ov = master_ins_ov.drop(columns=[c_desc + "_y"])
+                for col in master_ins_ov.columns:
+                    if "Net" in col: 
+                        master_ins_ov[col] = master_ins_ov[col].fillna(Decimal('0'))
+                master_ins_ov = master_ins_ov.rename(columns={c_code: "Code", c_desc: "Description"})
+                disp_prefix = ["Code", "Description"]
+            
+            ins_chrono_ov = sorted(ins_dfs_ov, key=lambda x: x[1])
+            ov_years = [item[1] for item in ins_chrono_ov]
+            y_newest = ov_years[-1]
+            y1 = ov_years[-2]
+            
+            master_ins_ov["Change_1_Raw"] = master_ins_ov.apply(lambda x: clean_number(x.get(f"Net {y_newest}", Decimal('0'))) - clean_number(x.get(f"Net {y1}", Decimal('0'))), axis=1)
+            master_ins_ov["YoY_1"] = master_ins_ov.apply(lambda x: yoy_calc(x.get(f"Net {y_newest}", 0), x.get(f"Net {y1}", 0)), axis=1)
+            
+            if len(ov_years) >= 2:
+                master_ins_ov[f"Change {y_newest} vs {y1}"] = master_ins_ov["Change_1_Raw"].apply(to_display_num)
+                master_ins_ov[f"YoY {y_newest} vs {y1} (%)"] = master_ins_ov["YoY_1"].apply(yoy_label)
+                display_cols = disp_prefix + [f"Net {y}" for y in ov_years] + [f"Change {y_newest} vs {y1}", f"YoY {y_newest} vs {y1} (%)"]
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("#### Top 5 Growth" + (" Categories" if is_cat_all else " SKUs"))
+                growth = master_ins_ov[master_ins_ov["Change_1_Raw"] > 0].sort_values("Change_1_Raw", ascending=False).head(5)
+                if not growth.empty:
+                    disp = growth.copy()
+                    for y in ov_years: 
+                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                    st.dataframe(add_index(disp[display_cols]))
+                else: 
+                    st.info("No growth found.")
+                    
+            with c2:
+                st.write("#### Top 5 Decline" + (" Categories" if is_cat_all else " SKUs"))
+                decline = master_ins_ov[master_ins_ov["Change_1_Raw"] < 0].sort_values("Change_1_Raw", ascending=True).head(5)
+                if not decline.empty:
+                    disp = decline.copy()
+                    for y in ov_years: 
+                        disp[f"Net {y}"] = disp.get(f"Net {y}", pd.Series(dtype=int)).apply(to_display_num)
+                    st.dataframe(add_index(disp[display_cols]))
+                else: 
+                    st.success("No decline found.")
+
+
+# ================= TAB: CATEGORY REVIEW =================
+with tab_category:
+    st.header("📁 Category Review")
+    
+    dfs_cat_rev = [d for d in [df_curr, df_prev, df_old2] if d is not None]
+    if len(dfs_cat_rev) < 1:
+        st.warning("Please upload data.")
+    else:
+        df_all_cat_rev = pd.concat(dfs_cat_rev, ignore_index=True)
+        
+        cat_c1, cat_c2, cat_c3, cat_c4 = st.columns(4)
+        
+        countries_cat_rev = ["All Countries"] + sorted(df_all_cat_rev[hierarchy_cols["Country"]].replace("", pd.NA).dropna().unique().tolist())
+        selected_country_cat_rev = cat_c1.selectbox("🌎 Country", countries_cat_rev, key="cat_rev_country")
+
+        df_for_cat_rev = df_all_cat_rev.copy()
+        if selected_country_cat_rev != "All Countries":
+            df_for_cat_rev = df_for_cat_rev[df_for_cat_rev[hierarchy_cols["Country"]] == selected_country_cat_rev]
+
+        customers_cat_rev = ["All Customers"] + sorted(df_for_cat_rev[hierarchy_cols["Customer"]].replace("", pd.NA).dropna().unique().tolist())
+        selected_customer_cat_rev = cat_c2.selectbox("🏢 Customer", customers_cat_rev, key="cat_rev_customer")
+
+        brands_cat_rev = ["All Brands"] + sorted(df_for_cat_rev[hierarchy_cols["Brand"]].dropna().unique().tolist())
+        selected_brand_cat_rev = cat_c3.selectbox("🏷️ Brand (Licence)", brands_cat_rev, key="cat_rev_brand")
+
+        categories_cat_rev = ["All Categories"] + sorted(df_for_cat_rev[hierarchy_cols["Cat"]].dropna().unique().tolist())
+        selected_category_specific = cat_c4.selectbox("📦 Category", categories_cat_rev, key="cat_rev_category_specific")
+
+        options_cat_rev_m = MONTHS_ORDER 
+        default_cat_rev_m = [m for m in hierarchy_months if m in options_cat_rev_m]
+        if not default_cat_rev_m:
+            default_cat_rev_m = options_cat_rev_m
+        
+        key_cat_rev_mo = f"cat_rev_months_{hm_sig}"
+        label_cat_rev_m = f"📅 Months ({len(default_cat_rev_m)} active)"
+        selected_months_cat_rev = st.multiselect(label_cat_rev_m, options=options_cat_rev_m, default=default_cat_rev_m, key=key_cat_rev_mo)
+
+        if selected_category_specific == "All Categories":
+            st.info("⚠️ Please select a specific Category from the filter above to view the dedicated analysis.")
         else:
-            cust_col = cols_cs_active["Customer"]
-            net_col = cols_cs_active["Net"]
-            qty_col = cols_cs_active["Qty"]
+            st.markdown(f"### KPI (Current vs Previous) - {selected_category_specific}")
+            cat_rev_valid_dfs = []
+            for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
+                if orig_d is not None:
+                    d_f = orig_d.copy()
+                    if selected_country_cat_rev != "All Countries": d_f = d_f[d_f[c["Country"]] == selected_country_cat_rev]
+                    if selected_customer_cat_rev != "All Customers": d_f = d_f[d_f[c["Customer"]] == selected_customer_cat_rev]
+                    if selected_brand_cat_rev != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_cat_rev]
+                    d_f = d_f[d_f[c["Cat"]] == selected_category_specific]
+                    if selected_months_cat_rev: d_f = d_f[d_f[c["Month"]].isin(selected_months_cat_rev)] 
+                    
+                    if not d_f.empty:
+                        cat_rev_valid_dfs.append((d_f, y, c))
             
-            # Agregacja per Klient
-            cs_grouped = df_cs_filtered.groupby(cust_col).agg({
-                net_col: sum_decimal,
-                qty_col: sum_decimal
-            }).reset_index()
+            cat_rev_valid_dfs_chrono = sorted(cat_rev_valid_dfs, key=lambda x: x[1])
+
+            if len(cat_rev_valid_dfs_chrono) >= 2:
+                d_new, y_new, c_new = cat_rev_valid_dfs_chrono[-1]
+                d_old, y_old, c_old = cat_rev_valid_dfs_chrono[-2]
+
+                s_new_net = sum_decimal(d_new[c_new["Net"]])
+                s_old_net = sum_decimal(d_old[c_old["Net"]])
+                s_new_qty = sum_decimal(d_new[c_new["Qty"]])
+                s_old_qty = sum_decimal(d_old[c_old["Qty"]])
+
+                kc1, kc2, kc3, kc4 = st.columns(4)
+                kc1.metric(f"Net {y_old} (EUR)", format_number_plain(s_old_net))
+                kc2.metric(f"Net {y_new} (EUR)", format_number_plain(s_new_net), yoy_label(yoy_calc(s_new_net, s_old_net)))
+                kc3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
+                kc4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
