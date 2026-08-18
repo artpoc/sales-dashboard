@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, getcontext
+import re
 
 # ===== PERFECT ENGINE INTEGRATION =====
 getcontext().prec = 28
@@ -11,14 +12,33 @@ def clean_number(x):
         return x
     if x is None or pd.isna(x):
         return Decimal('0')
-    s = str(x)
+    
+    s = str(x).strip()
+    # Usuwanie spacji i twardych spacji
     s = s.replace("\xa0","").replace("\u202f","").replace(" ","")
+    # Zamiana polskiego przecinka na kropkę
     s = s.replace(",", ".")
+    
+    # Standaryzacja znaków minusa (półpauzy, pauzy na zwykły minus)
+    s = s.replace("−", "-").replace("–", "-").replace("—", "-")
+    
+    # Obsługa formatu księgowego dla liczb ujemnych: (123.45) -> -123.45
+    if s.startswith("(") and s.endswith(")"):
+        s = "-" + s[1:-1]
+        
     if s in ["", "-", "nan", "None"]:
         return Decimal('0')
+        
     try:
         return Decimal(s)
     except InvalidOperation:
+        # Ratunkowe wyciąganie cyfr w przypadku np. wystąpienia obcych symboli walut
+        s_cleaned = re.sub(r'[^\d\.\-]', '', s)
+        if s_cleaned and s_cleaned != '-':
+            try:
+                return Decimal(s_cleaned)
+            except InvalidOperation:
+                return Decimal('0')
         return Decimal('0')
 
 def sum_decimal(series):
@@ -1491,7 +1511,7 @@ with tab_overview:
         for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
             if orig_d is not None:
                 d_f = orig_d.copy()
-                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta["country"]]
+                if meta["country"] != "All Countries": d_f = d_f[d_f[c["Country"]] == meta_cr["country"]]
                 if meta["customer"] != "All Customers": d_f = d_f[d_f[c["Customer"]] == meta["customer"]]
                 if not is_cat_all: d_f = d_f[d_f[c["Cat"]] == meta["category"]]
                 if meta["months"]: d_f = d_f[d_f[c["Month"]].isin(meta["months"])]
@@ -2080,204 +2100,3 @@ with tab_cust_sales:
                 net_col: sum_decimal,
                 qty_col: sum_decimal
             }).reset_index()
-            
-            cs_grouped = sort_by_col_desc(cs_grouped, net_col)
-            total_net_cs = sum_decimal(cs_grouped[net_col])
-            
-            # Przygotowanie danych do wyświetlenia
-            cs_display = cs_grouped.copy()
-            if total_net_cs == 0:
-                cs_display["Share (%)"] = "0.0%"
-            else:
-                cs_display["Share (%)"] = cs_display[net_col].apply(
-                    lambda x: percent_label(clean_number(x) / total_net_cs * Decimal('100'))
-                )
-                
-            cs_display[net_col] = cs_display[net_col].apply(to_display_num)
-            cs_display[qty_col] = cs_display[qty_col].apply(to_display_num)
-            
-            cs_display = cs_display.rename(columns={
-                cust_col: "Customer",
-                net_col: f"Net Sales {selected_cs_year} (EUR)",
-                qty_col: f"Qty {selected_cs_year} (PCS)"
-            })
-            
-            st.markdown(f"### 📊 Customer Sales Ranking for {selected_cs_year}")
-            st.dataframe(add_index(cs_display), use_container_width=True)
-            
-            # Dodatkowy wykres podglądu Top 10 Klientów
-            st.divider()
-            st.markdown(f"### 📈 Top 10 Customers Chart ({selected_cs_year})")
-            top_10_cust = cs_grouped.head(10).copy()
-            top_10_cust[net_col] = top_10_cust[net_col].apply(lambda v: float(clean_number(v)))
-            st.plotly_chart(
-                px.bar(
-                    top_10_cust, 
-                    x=cust_col, 
-                    y=net_col, 
-                    text=net_col,
-                    title=f"Top 10 Customers by Net Sales in {selected_cs_year} (EUR)",
-                    labels={net_col: "Net Value (EUR)", cust_col: "Customer"},
-                    color=cust_col,
-                    color_discrete_map=GLOBAL_COLOR_MAP
-                ),
-                use_container_width=True
-            )
-
-
-# ================= TAB: CATEGORY REVIEW =================
-with tab_category:
-    st.header("📁 Category Review")
-    
-    dfs_cat_rev = [d for d in [df_curr, df_prev, df_old2] if d is not None]
-    if len(dfs_cat_rev) < 1:
-        st.warning("Please upload data.")
-    else:
-        df_all_cat_rev = pd.concat(dfs_cat_rev, ignore_index=True)
-        
-        cat_c1, cat_c2, cat_c3, cat_c4 = st.columns(4)
-        
-        countries_cat_rev = ["All Countries"] + sorted(df_all_cat_rev[hierarchy_cols["Country"]].replace("", pd.NA).dropna().unique().tolist())
-        selected_country_cat_rev = cat_c1.selectbox("🌎 Country", countries_cat_rev, key="cat_rev_country")
-
-        df_for_cat_rev = df_all_cat_rev.copy()
-        if selected_country_cat_rev != "All Countries":
-            df_for_cat_rev = df_for_cat_rev[df_for_cat_rev[hierarchy_cols["Country"]] == selected_country_cat_rev]
-
-        customers_cat_rev = ["All Customers"] + sorted(df_for_cat_rev[hierarchy_cols["Customer"]].replace("", pd.NA).dropna().unique().tolist())
-        selected_customer_cat_rev = cat_c2.selectbox("🏢 Customer", customers_cat_rev, key="cat_rev_customer")
-
-        brands_cat_rev = ["All Brands"] + sorted(df_for_cat_rev[hierarchy_cols["Brand"]].dropna().unique().tolist())
-        selected_brand_cat_rev = cat_c3.selectbox("🏷️ Brand (Licence)", brands_cat_rev, key="cat_rev_brand")
-
-        categories_cat_rev = ["All Categories"] + sorted(df_for_cat_rev[hierarchy_cols["Cat"]].dropna().unique().tolist())
-        selected_category_specific = cat_c4.selectbox("📦 Category", categories_cat_rev, key="cat_rev_category_specific")
-
-        options_cat_rev_m = MONTHS_ORDER 
-        default_cat_rev_m = [m for m in hierarchy_months if m in options_cat_rev_m]
-        if not default_cat_rev_m:
-            default_cat_rev_m = options_cat_rev_m
-        
-        key_cat_rev_mo = f"cat_rev_months_{hm_sig}"
-        label_cat_rev_m = f"📅 Months ({len(default_cat_rev_m)} active)"
-        selected_months_cat_rev = st.multiselect(label_cat_rev_m, options=options_cat_rev_m, default=default_cat_rev_m, key=key_cat_rev_mo)
-
-        if selected_category_specific == "All Categories":
-            st.info("⚠️ Please select a specific Category from the filter above to view the dedicated analysis.")
-        else:
-            st.markdown(f"### KPI (Current vs Previous) - {selected_category_specific}")
-            cat_rev_valid_dfs = []
-            for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
-                if orig_d is not None:
-                    d_f = orig_d.copy()
-                    if selected_country_cat_rev != "All Countries": d_f = d_f[d_f[c["Country"]] == selected_country_cat_rev]
-                    if selected_customer_cat_rev != "All Customers": d_f = d_f[d_f[c["Customer"]] == selected_customer_cat_rev]
-                    if selected_brand_cat_rev != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_cat_rev]
-                    d_f = d_f[d_f[c["Cat"]] == selected_category_specific]
-                    if selected_months_cat_rev: d_f = d_f[d_f[c["Month"]].isin(selected_months_cat_rev)] 
-                    
-                    if not d_f.empty:
-                        cat_rev_valid_dfs.append((d_f, y, c))
-            
-            cat_rev_valid_dfs_chrono = sorted(cat_rev_valid_dfs, key=lambda x: x[1])
-
-            if len(cat_rev_valid_dfs_chrono) >= 2:
-                d_new, y_new, c_new = cat_rev_valid_dfs_chrono[-1]
-                d_old, y_old, c_old = cat_rev_valid_dfs_chrono[-2]
-
-                s_new_net = sum_decimal(d_new[c_new["Net"]])
-                s_old_net = sum_decimal(d_old[c_old["Net"]])
-                s_new_qty = sum_decimal(d_new[c_new["Qty"]])
-                s_old_qty = sum_decimal(d_old[c_old["Qty"]])
-
-                kc1, kc2, kc3, kc4 = st.columns(4)
-                kc1.metric(f"Net {y_old} (EUR)", format_number_plain(s_old_net))
-                kc2.metric(f"Net {y_new} (EUR)", format_number_plain(s_new_net), yoy_label(yoy_calc(s_new_net, s_old_net)))
-                kc3.metric(f"Qty {y_old} (PCS)", format_number_plain(s_old_qty))
-                kc4.metric(f"Qty {y_new} (PCS)", format_number_plain(s_new_qty), yoy_label(yoy_calc(s_new_qty, s_old_qty)))
-            else:
-                st.info("Not enough data to calculate comparison KPIs (need at least 2 lat).")
-                
-            st.divider()
-            
-            default_divisor_cat_rev = len(selected_months_cat_rev) if selected_months_cat_rev else 12
-            avg_divisor_cat_rev = st.slider("Select number of months for ∑ and AVG calculation:", min_value=1, max_value=12, value=default_divisor_cat_rev, step=1, key="cat_rev_slider")
-
-            def render_cat_rev_monthly_table(mode="Net"):
-                st.markdown(f"### {mode} Value Monthly Comparison")
-                col_key = "Net" if mode == "Net" else "Qty"
-                sum_col_key = f"∑ (for {avg_divisor_cat_rev} months)"
-                avg_col_key = "Avg Month"
-
-                year_data = {}
-                for orig_d, y, c in zip([df_old2, df_prev, df_curr], [year_old2, year_prev, year_curr], [cols_old2, cols_prev, cols_curr]):
-                    if orig_d is not None:
-                        d_f = orig_d.copy()
-                        if selected_country_cat_rev != "All Countries": d_f = d_f[d_f[c["Country"]] == selected_country_cat_rev]
-                        if selected_customer_cat_rev != "All Customers": d_f = d_f[d_f[c["Customer"]] == selected_customer_cat_rev]
-                        if selected_brand_cat_rev != "All Brands": d_f = d_f[d_f[c["Brand"]] == selected_brand_cat_rev]
-                        d_f = d_f[d_f[c["Cat"]] == selected_category_specific]
-
-                        m_vals = {}
-                        for m in MONTHS_ORDER:
-                            val = sum_decimal(d_f[d_f[c["Month"]] == m][c[col_key]])
-                            m_vals[m] = val
-                        
-                        selected_months_for_avg = MONTHS_ORDER[:avg_divisor_cat_rev]
-                        partial_sum = Decimal('0')
-                        for m in selected_months_for_avg: partial_sum += m_vals[m]
-                            
-                        m_vals[sum_col_key] = partial_sum
-                        m_vals[avg_col_key] = partial_sum / Decimal(str(avg_divisor_cat_rev))
-                        year_data[y] = m_vals
-
-                if not year_data: return
-
-                available_years = sorted(list(year_data.keys()))
-                display_rows = []
-                col_keys = MONTHS_ORDER + [sum_col_key, avg_col_key]
-
-                for y in available_years:
-                    row = {"Year": str(y)}
-                    for m in col_keys:
-                        disp_name = SHORT_MONTHS.get(m, m)
-                        row[disp_name] = to_display_num(year_data[y][m])
-                    display_rows.append(row)
-
-                if len(available_years) >= 2:
-                    y_newest = available_years[-1]
-                    y1 = available_years[-2]
-                    row_yoy = {"Year": f"∆ {y_newest} vs {y1}"}
-                    for m in col_keys:
-                        disp_name = SHORT_MONTHS.get(m, m)
-                        if m in selected_months_cat_rev or m in [sum_col_key, avg_col_key]:
-                            row_yoy[disp_name] = yoy_label(yoy_calc(year_data[y_newest][m], year_data[y1][m]))
-                        else:
-                            row_yoy[disp_name] = "n/a"
-                    display_rows.append(row_yoy)
-
-                df_disp = pd.DataFrame(display_rows)
-                styled_df = style_monthly_table(df_disp)
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-
-            render_cat_rev_monthly_table("Net")
-            st.divider()
-            render_cat_rev_monthly_table("Qty")
-
-
-# ================= BOILERPLATE CODES FOR CUT-OFF STUBS =================
-with tab_country:
-    st.header("🌍 Country Review")
-    st.info("Country Review module placeholder. Data available via global overview filters.")
-
-with tab_brand:
-    st.header("🏷️ Brand Review")
-    st.info("Brand Review module placeholder. Data available via global overview filters.")
-
-with tab_churn:
-    st.header("⚠️ Churn & Acquisition")
-    st.info("Churn & Acquisition calculations placeholder.")
-
-with tab_dead_stock:
-    st.header("📦 Dead Stock")
-    st.info("Dead Stock analysis placeholder.")
